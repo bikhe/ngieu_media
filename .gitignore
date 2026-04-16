@@ -1,0 +1,29 @@
+# --- Python / Django ---
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+db.sqlite3
+.env
+backend/.env
+
+# --- React ---
+admin-web/node_modules/
+admin-web/build/
+admin-web/.env
+
+# --- Flutter ---
+media_app/build/
+media_app/.dart_tool/
+media_app/.packages
+media_app/.pub-cache/
+media_app/.pub/
+media_app/android/key.properties
+media_app/**/*.keystore
+media_app/**/*.jks
+
+# --- OS & IDE ---
+.DS_Store
+.vscode/
+.idea/
