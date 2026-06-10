@@ -7,7 +7,6 @@ import {
   Button, 
   Popover, 
   Divider, 
-  Stack, 
   Chip, 
   useTheme 
 } from '@mui/material';
@@ -337,7 +336,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
         } as any)}
       >
         {selectedEvent && (
-          <Stack spacing={1.5}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
             <Box>
               <Typography variant="subtitle2" color="text.secondary" sx={{ fontSize: '11px', textTransform: 'uppercase' }}>
                 {getContentTypeLabel(selectedEvent.content_type)}
@@ -349,7 +348,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
             <Divider />
 
-            <Stack spacing={1}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <ScheduleIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
                 <Typography variant="body2" sx={{ fontSize: '13px' }}>
@@ -368,9 +367,9 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                   Орг: {selectedEvent.responsible_person?.first_name || selectedEvent.responsible_person?.username}
                 </Typography>
               </Box>
-            </Stack>
+            </Box>
 
-            <Stack direction="row" spacing={1} alignItems="center">
+            <Box sx={{ display: 'flex', flexDirection: 'row', gap: 1, alignItems: 'center' }}>
               <Chip 
                 label={getStatusLabel(selectedEvent.status)} 
                 size="small" 
@@ -383,7 +382,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                 }} 
               />
               <Chip label={`👥 ${selectedEvent.media_participants?.length || 0}/${selectedEvent.max_participants}`} size="small" variant="outlined" />
-            </Stack>
+            </Box>
 
             <Divider />
 
@@ -398,7 +397,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                 <ChatIcon />
               </IconButton>
               
-              <Stack direction="row" spacing={0.5}>
+              <Box sx={{ display: 'flex', flexDirection: 'row', gap: 0.5 }}>
                 {/* Admin/Owner actions */}
                 {(isAdmin || (user?.role === 'ORGANIZER' && selectedEvent.responsible_person?.id === user?.id)) && (
                   <>
@@ -441,9 +440,9 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                     </IconButton>
                   </>
                 )}
-              </Stack>
+              </Box>
             </Box>
-          </Stack>
+          </Box>
         )}
       </Popover>
     </Box>
