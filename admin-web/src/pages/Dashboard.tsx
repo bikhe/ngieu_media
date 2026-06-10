@@ -214,7 +214,7 @@ const Dashboard = () => {
       <Container maxWidth="lg" sx={{ mt: 5 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
           <Typography variant="h4" sx={{ fontWeight: 900 }}>Мероприятия</Typography>
-          <Stack direction="row" spacing={2} alignItems="center">
+          <Box sx={{ display: 'flex', flexDirection: 'row', gap: 2, alignItems: 'center' }}>
             <ToggleButtonGroup
               value={viewMode}
               exclusive
@@ -236,7 +236,7 @@ const Dashboard = () => {
                 setModal({open: true, id: null}); 
               }}>Создать</Button>
             )}
-          </Stack>
+          </Box>
         </Box>
 
         <Tabs value={tab} onChange={(_, v) => { setTab(v); setPage(1); }} sx={{ mb: 4 }} variant="scrollable">
