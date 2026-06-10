@@ -29,3 +29,4 @@ media_app/**/*.jks
 .DS_Store
 .vscode/
 .idea/
+deploy.md
