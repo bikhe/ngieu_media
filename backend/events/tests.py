@@ -376,3 +376,45 @@ class MediaExchangeTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(User.objects.filter(id=new_user_id).exists())
 
+    def test_take_task_creates_loan_and_prevents_double_booking(self):
+        from .models import EquipmentLoan
+        from datetime import time
+        
+        event_date = timezone.now().date()
+        
+        # Create an OPEN event
+        event = Event.objects.create(
+            title='Test Event with Equipment',
+            date=event_date,
+            time=time(12, 0),
+            end_time=time(14, 0),
+            responsible_person=self.org1,
+            status='OPEN'
+        )
+        
+        # Authenticate as media1 and take the task, booking the camera
+        self.client.force_authenticate(user=self.media1)
+        response = self.client.post(f'/api/events/{event.id}/take_task/', {
+            'equipment_ids': [self.camera.id]
+        })
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        # Verify EquipmentLoan was created
+        loans = EquipmentLoan.objects.filter(user=self.media1, event=event, equipment=self.camera)
+        self.assertEqual(loans.count(), 1)
+        loan = loans.first()
+        self.assertEqual(loan.status, 'REQUESTED')
+        self.assertEqual(loan.quantity, 1)
+        self.assertEqual(loan.comment, f"Бронирование под мероприятие '{event.title}'")
+        
+        # Now try to request the same camera as media2 for an overlapping period -> Should fail because it is booked
+        self.client.force_authenticate(user=self.media2)
+        response = self.client.post('/api/loans/', {
+            'equipment_id': self.camera.id,
+            'quantity': 1,
+            'loan_start': f"{event_date}T12:30:00Z",
+            'loan_end': f"{event_date}T13:30:00Z"
+        })
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('Недостаточно доступного оборудования', str(response.data))
+

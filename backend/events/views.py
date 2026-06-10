@@ -446,6 +446,16 @@ class EventViewSet(viewsets.ModelViewSet):
             if ENABLE_EQUIPMENT_BOOKING:
                 for eq in equipments:
                     event.booked_equipment.add(eq)
+                    EquipmentLoan.objects.create(
+                        equipment=eq,
+                        user=request.user,
+                        event=event,
+                        quantity=1,
+                        status='REQUESTED',
+                        loan_start=start_dt,
+                        loan_end=end_dt,
+                        comment=f"Бронирование под мероприятие '{event.title}'"
+                    )
             if event.media_participants.count() >= max_p: event.status = 'IN_PROGRESS'
             event.save()
             if event.responsible_person.telegram_id: send_tg_notification(event.responsible_person.telegram_id, f"✅ Взяли вашу съемку '{event.title}'!", event_id=event.id)
