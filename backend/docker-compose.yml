@@ -5,9 +5,9 @@ services:
     image: postgres:15-alpine
     restart: always
     environment:
-      POSTGRES_DB: events_db
-      POSTGRES_USER: events_user
-      POSTGRES_PASSWORD: Set-Your-Password
+      POSTGRES_DB: ${DB_NAME:-events_db}
+      POSTGRES_USER: ${DB_USER:-events_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-Set-Your-Password}
     volumes:
       - postgres_data:/var/lib/postgresql/data
 

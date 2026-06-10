@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_DB: ${DB_NAME:-events_db}
+      POSTGRES_USER: ${DB_USER:-events_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-Set-Your-Password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: ./backend
+    restart: always
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    env_file:
+      - ./backend/.env
+    # We use runserver for local test runs so that Django serves static admin files
+    # automatically, and prints debug logs.
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py runserver 0.0.0.0:8000"
+
+  bot:
+    build:
+      context: ./backend
+    restart: always
+    depends_on:
+      - db
+      - backend
+    env_file:
+      - ./backend/.env
+    command: python manage.py run_bot
+
+  admin-web:
+    build:
+      context: ./admin-web
+    restart: always
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    env_file:
+      - ./admin-web/.env
+
+  mobile-web:
+    build:
+      context: ./mobile-web
+    restart: always
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    env_file:
+      - ./mobile-web/.env
+
+volumes:
+  postgres_data:

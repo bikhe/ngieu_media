@@ -1,11 +1,12 @@
 import React, { useEffect, useState, useContext, useCallback } from 'react';
-import { Box, Container, Typography, Card, Button, AppBar, Toolbar, Avatar, IconButton, Chip, Tabs, Tab, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Drawer, List, ListItem, ListItemText, Stack, Paper, MenuItem, Select, FormControl, InputLabel, OutlinedInput, Divider } from '@mui/material';
+import { Box, Container, Typography, Card, Button, AppBar, Toolbar, Avatar, IconButton, Chip, Tabs, Tab, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Drawer, List, ListItem, ListItemText, Stack, Paper, MenuItem, Select, FormControl, InputLabel, OutlinedInput, Divider, Pagination } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { format, parseISO } from 'date-fns';
 import toast, { Toaster } from 'react-hot-toast';
 import { Brightness4 as Brightness4Icon, Brightness7 as Brightness7Icon, Edit as EditIcon, Delete as DeleteIcon, Chat as ChatIcon, Send as SendIcon, Inventory2 as Inventory2Icon, MilitaryTech as MilitaryTechIcon, Link as LinkIcon, Timer as TimerIcon } from '@mui/icons-material';
 
 import api from '../services/api';
+import { useUpdatesBroker } from '../services/useUpdatesBroker';
 import { ColorModeContext } from '../App';
 
 const Dashboard = () => {
@@ -20,6 +21,9 @@ const Dashboard = () => {
   const [tab, setTab] = useState('ALL');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [invites, setInvites] = useState<any[]>([]);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const pageSize = 9;
   
   const [modal, setModal] = useState({ open: false, id: null as any });
   
@@ -36,17 +40,30 @@ const Dashboard = () => {
 
   const [profileModal, setProfileModal] = useState(false);
   const [profileForm, setProfileForm] = useState({ first_name: '', last_name: '', telegram_id: '' });
+  const [changePassOpen, setChangePassOpen] = useState(false);
+  const [oldPassword, setOldPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
 
   const isAdmin = user?.role === 'MAIN_ADMIN';
 
   const loadData = useCallback(async () => {
     try {
+      const params: any = { page, page_size: pageSize };
+      if (tab !== 'ALL') {
+        params.status = tab;
+      }
       const [e, u, eq] = await Promise.all([
-        api.get('events/'), 
+        api.get('events/', { params }), 
         api.get('users/me/'),
         api.get('equipment/') // Тянем список техники
       ]);
-      setEvents(e.data); 
+      if (e.data.results !== undefined) {
+        setEvents(e.data.results);
+        setTotalPages(Math.ceil(e.data.count / pageSize));
+      } else {
+        setEvents(e.data);
+        setTotalPages(1);
+      }
       setUser(u.data); 
       setFeatures(u.data.features || {});
       setEquipment(eq.data);
@@ -54,7 +71,18 @@ const Dashboard = () => {
       setProfileForm({ first_name: u.data.first_name || '', last_name: u.data.last_name || '', telegram_id: u.data.telegram_id || '' });
       if (u.data.role === 'MAIN_ADMIN') setInvites((await api.get('invites/')).data);
     } catch { navigate('/login'); } finally { setLoading(false); }
-  }, [navigate]);
+  }, [navigate, page, tab]);
+
+  // Real-time updates broker integration
+  useUpdatesBroker(['event', 'equipment', 'loan'], () => {
+    loadData();
+  });
+
+  useUpdatesBroker(['comment'], (log) => {
+    if (chatModal.open && log.extra_data?.event_id === chatModal.eventId) {
+      loadChat(chatModal.eventId);
+    }
+  });
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -80,6 +108,32 @@ const Dashboard = () => {
     setNewComment(''); loadChat(chatModal.eventId);
   };
 
+  const handleProfileSave = async () => {
+    try {
+      if (changePassOpen) {
+        if (!oldPassword || !newPassword) {
+          toast.error('Заполните все поля пароля');
+          return;
+        }
+        if (newPassword.length < 6) {
+          toast.error('Новый пароль должен быть не менее 6 символов');
+          return;
+        }
+        await api.post('users/change_password/', { old_password: oldPassword, new_password: newPassword });
+      }
+      await api.post('users/me/', profileForm);
+      toast.success('Профиль успешно обновлен');
+      setProfileModal(false);
+      setChangePassOpen(false);
+      setOldPassword('');
+      setNewPassword('');
+      loadData();
+    } catch (err: any) {
+      const msg = err.response?.data?.error || 'Ошибка сохранения';
+      toast.error(msg);
+    }
+  };
+
   if (loading) return <Box sx={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center' }}><CircularProgress /></Box>;
 
   return (
@@ -99,6 +153,8 @@ const Dashboard = () => {
           <Button fullWidth variant="outlined" sx={{ mb: 3 }} onClick={() => { setDrawerOpen(false); setProfileModal(true); }}>Профиль</Button>
           {isAdmin && (
             <Box sx={{ mb: 4 }}>
+              <Button fullWidth variant="contained" color="secondary" onClick={() => { setDrawerOpen(false); navigate('/analytics'); }} sx={{ mb: 2 }}>Аналитика</Button>
+              <Button fullWidth variant="contained" color="info" onClick={() => { setDrawerOpen(false); navigate('/warehouse'); }} sx={{ mb: 2 }}>Склад оборудования</Button>
               <Button fullWidth variant="contained" onClick={async () => { await api.post('invites/', {}); setInvites((await api.get('invites/')).data); toast.success("Код создан"); }} sx={{ mb: 2 }}>Новый инвайт</Button>
               <Paper variant="outlined" sx={{ maxHeight: 200, overflow: 'auto' }}>
                 <List dense>{invites.map(i => <ListItem key={i.id}><ListItemText primary={i.code} /></ListItem>)}</List>
@@ -112,29 +168,33 @@ const Dashboard = () => {
       <Container maxWidth="lg" sx={{ mt: 5 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 4 }}>
           <Typography variant="h4" sx={{ fontWeight: 900 }}>Мероприятия</Typography>
-          <Button variant="contained" onClick={() => { 
-            setForm({title:'', date:'', time:'12:00', deadline: '', location:'', content_type:'PHOTO', document_link:'', result_link: '', max_participants: 1, required_skill: 'ANY', equipment_ids: []}); 
-            setModal({open: true, id: null}); 
-          }}>Создать</Button>
+          {(isAdmin || user?.role === 'ORGANIZER') && (
+            <Button variant="contained" onClick={() => { 
+              setForm({title:'', date:'', time:'12:00', deadline: '', location:'', content_type:'PHOTO', document_link:'', result_link: '', max_participants: 1, required_skill: 'ANY', equipment_ids: []}); 
+              setModal({open: true, id: null}); 
+            }}>Создать</Button>
+          )}
         </Box>
 
-        <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 4 }} variant="scrollable">
+        <Tabs value={tab} onChange={(_, v) => { setTab(v); setPage(1); }} sx={{ mb: 4 }} variant="scrollable">
           <Tab label="Все" value="ALL" /><Tab label="Новые" value="PENDING" /><Tab label="Открыты" value="OPEN" /><Tab label="В работе" value="IN_PROGRESS" /><Tab label="Готово" value="COMPLETED" />
         </Tabs>
 
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: 'repeat(3, 1fr)' }, gap: 3 }}>
-          {(tab === 'ALL' ? events : events.filter(e => e.status === tab)).map(event => (
+          {events.map(event => (
             <Box key={event.id}>
               <Card sx={{ height: '100%', p: 3, display: 'flex', flexDirection: 'column', borderTop: 6, borderColor: event.status === 'COMPLETED' ? 'success.main' : (event.status === 'OVERDUE' ? 'error.main' : 'primary.main') }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
                   <Chip label={event.status} size="small" color={event.status === 'OVERDUE' ? 'error' : 'default'} />
-                  <Stack direction="row">
-                    <IconButton size="small" onClick={() => {
-                      setForm({...event, equipment_ids: event.booked_equipment?.map((eq:any) => eq.id) || []}); 
-                      setModal({open: true, id: event.id});
-                    }}><EditIcon/></IconButton>
-                    <IconButton size="small" color="error" onClick={() => handleAction(event.id, 'delete')}><DeleteIcon/></IconButton>
-                  </Stack>
+                  {(isAdmin || (user?.role === 'ORGANIZER' && event.responsible_person?.id === user?.id)) && (
+                    <Stack direction="row">
+                      <IconButton size="small" onClick={() => {
+                        setForm({...event, equipment_ids: event.booked_equipment?.map((eq:any) => eq.id) || []}); 
+                        setModal({open: true, id: event.id});
+                      }}><EditIcon/></IconButton>
+                      <IconButton size="small" color="error" onClick={() => handleAction(event.id, 'delete')}><DeleteIcon/></IconButton>
+                    </Stack>
+                  )}
                 </Box>
                 
                 <Typography variant="h6" sx={{ fontWeight: 900, mb: 0.5 }}>{event.title}</Typography>
@@ -174,6 +234,17 @@ const Dashboard = () => {
             </Box>
           ))}
         </Box>
+        {totalPages > 1 && (
+          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
+            <Pagination 
+              count={totalPages} 
+              page={page} 
+              onChange={(_, p) => setPage(p)} 
+              color="primary" 
+              size="large"
+            />
+          </Box>
+        )}
       </Container>
 
       {/* МОДАЛКА РЕДАКТИРОВАНИЯ - ТУТ ВСЕ ПОЛЯ */}
@@ -256,6 +327,37 @@ const Dashboard = () => {
         <DialogActions sx={{ p: 2 }}>
           <TextField fullWidth size="small" placeholder="Написать сообщение..." value={newComment} onChange={e => setNewComment(e.target.value)} onKeyPress={e => e.key === 'Enter' && sendMessage()} />
           <IconButton color="primary" onClick={sendMessage}><SendIcon/></IconButton>
+        </DialogActions>
+      </Dialog>
+
+      {/* МОДАЛКА ПРОФИЛЯ С ВОЗМОЖНОСТЬЮ СМЕНЫ ПАРОЛЯ */}
+      <Dialog open={profileModal} onClose={() => setProfileModal(false)} fullWidth maxWidth="xs">
+        <DialogTitle sx={{ fontWeight: 900 }}>Мой профиль</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField fullWidth label="Имя" value={profileForm.first_name} onChange={e => setProfileForm({...profileForm, first_name: e.target.value})} />
+            <TextField fullWidth label="Фамилия" value={profileForm.last_name} onChange={e => setProfileForm({...profileForm, last_name: e.target.value})} />
+            <TextField fullWidth label="Telegram ID" value={profileForm.telegram_id} onChange={e => setProfileForm({...profileForm, telegram_id: e.target.value})} helperText="Для получения уведомлений ботом" />
+            
+            <Button
+              variant="text"
+              onClick={() => setChangePassOpen(!changePassOpen)}
+              sx={{ alignSelf: 'flex-start', textTransform: 'none' }}
+            >
+              {changePassOpen ? '❌ Отменить смену пароля' : '🔑 Сменить пароль'}
+            </Button>
+
+            {changePassOpen && (
+              <Stack spacing={2} sx={{ p: 2, bgcolor: 'action.hover', borderRadius: 2 }}>
+                <TextField fullWidth type="password" size="small" label="Текущий пароль" value={oldPassword} onChange={e => setOldPassword(e.target.value)} />
+                <TextField fullWidth type="password" size="small" label="Новый пароль" value={newPassword} onChange={e => setNewPassword(e.target.value)} helperText="Минимум 6 символов" />
+              </Stack>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setProfileModal(false)}>Отмена</Button>
+          <Button variant="contained" onClick={handleProfileSave}>Сохранить</Button>
         </DialogActions>
       </Dialog>
     </Box>
