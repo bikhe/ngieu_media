@@ -88,10 +88,33 @@ def send_tg_notification(chat_id, text, event_id=None, open_chat=False):
     except Exception as e:
         print("Failed to send telegram notification:", e)
 
-class UserViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = User.objects.all()
+class UserViewSet(viewsets.ModelViewSet):
+    queryset = User.objects.all().order_by('id')
     serializer_class = UserSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = OptionalPageNumberPagination
+
+    def check_permissions(self, request):
+        super().check_permissions(request)
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            if request.user.role != 'MAIN_ADMIN':
+                raise PermissionDenied("Только администратор может управлять учетными записями.")
+
+    def perform_create(self, serializer):
+        password = self.request.data.get('password')
+        user = serializer.save()
+        if password:
+            user.set_password(password)
+        else:
+            user.set_password(get_random_string(12))
+        user.save()
+
+    def perform_update(self, serializer):
+        password = self.request.data.get('password')
+        user = serializer.save()
+        if password:
+            user.set_password(password)
+            user.save()
 
     @action(detail=False, methods=['GET', 'POST'])
     def me(self, request):
@@ -393,17 +416,31 @@ class EventViewSet(viewsets.ModelViewSet):
                     if len(equipments) != len(set(equipment_ids)):
                         return Response({'error': 'Некоторая техника не найдена'}, status=400)
 
-                    for eq in equipments:
-                        active_bookings = Event.objects.filter(
-                            date=event.date,
-                            booked_equipment=eq
-                        ).exclude(status__in=['REJECTED', 'PENDING']).exclude(id=event.id).count()
+                    from datetime import datetime, timedelta, time
+                    from django.utils.timezone import make_aware, get_current_timezone
 
-                        if active_bookings >= eq.total_quantity:
+                    start_dt = datetime.combine(event.date, event.time or time(0, 0))
+                    if event.end_time:
+                        end_dt = datetime.combine(event.date, event.end_time)
+                    else:
+                        end_dt = start_dt + timedelta(hours=2)
+
+                    try:
+                        start_dt = make_aware(start_dt, get_current_timezone())
+                        end_dt = make_aware(end_dt, get_current_timezone())
+                    except ValueError:
+                        pass
+
+                    for eq in equipments:
+                        avail = eq.get_available_quantity_at(
+                            start_dt, end_dt, exclude_event_id=event.id
+                        )
+                        if avail < 1:
                             return Response(
-                                {'error': f'Техника "{eq.name}" уже полностью забронирована на выбранную дату!'},
+                                {'error': f'Техника "{eq.name}" уже полностью забронирована на выбранный период ({start_dt.strftime("%d.%m.%Y %H:%M")}-{end_dt.strftime("%H:%M")})!'},
                                 status=400
                             )
+
 
             event.media_participants.add(request.user)
             if ENABLE_EQUIPMENT_BOOKING:
@@ -482,7 +519,7 @@ class InviteCodeViewSet(viewsets.ModelViewSet):
     def get_queryset(self): return InviteCode.objects.filter(is_used=False) if self.request.user.role == 'MAIN_ADMIN' else InviteCode.objects.none()
     def create(self, request, *args, **kwargs):
         if request.user.role != 'MAIN_ADMIN': return Response(status=403)
-        role = request.data.get('role', 'MEDIA')
+        role = request.data.get('role', 'ORGANIZER')
         if role not in ['MEDIA', 'ORGANIZER']:
             return Response({'error': 'Недопустимая роль'}, status=400)
         invite = InviteCode.objects.create(code=get_random_string(10).upper(), role=role)
@@ -620,9 +657,12 @@ class EquipmentLoanViewSet(viewsets.ModelViewSet):
             return Response({'error': 'Можно выдать только запрошенную технику'}, status=400)
         
         # Check availability
-        available = loan.equipment.available_quantity
+        available = loan.equipment.get_available_quantity_at(
+            loan.loan_start, loan.loan_end, exclude_loan_id=loan.id
+        )
         if available < loan.quantity:
-            return Response({'error': f'Недостаточно доступного оборудования на складе. Доступно: {available}'}, status=400)
+            return Response({'error': f'Недостаточно доступного оборудования на складе в этот период. Доступно: {available}'}, status=400)
+
 
         loan.status = 'ISSUED'
         loan.issued_at = timezone.now()

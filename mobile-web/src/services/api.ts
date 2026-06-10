@@ -108,19 +108,22 @@ export const apiService = {
     return res.data;
   },
 
-  async createLoan(equipmentId: number, quantity: number, eventId?: number | null, comment?: string): Promise<boolean> {
+  async createLoan(equipmentId: number, quantity: number, eventId?: number | null, comment?: string, loanStart?: string, loanEnd?: string): Promise<boolean> {
     try {
       const res = await api.post('/loans/', {
         equipment_id: equipmentId,
         quantity,
         event: eventId || null,
         comment: comment || '',
+        loan_start: loanStart || null,
+        loan_end: loanEnd || null,
       });
       return res.status === 200 || res.status === 201;
     } catch (e) {
       return false;
     }
   },
+
 
   async requestLoanReturn(loanId: number): Promise<boolean> {
     try {

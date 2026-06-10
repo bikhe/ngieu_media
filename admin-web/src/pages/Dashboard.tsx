@@ -21,6 +21,7 @@ const Dashboard = () => {
   const [tab, setTab] = useState('ALL');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [invites, setInvites] = useState<any[]>([]);
+  const [inviteRole, setInviteRole] = useState('ORGANIZER');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const pageSize = 9;
@@ -29,10 +30,11 @@ const Dashboard = () => {
   
   // Расширенная форма со всеми полями из БД
   const [form, setForm] = useState({ 
-    title: '', date: '', time: '12:00', deadline: '', location: '', 
+    title: '', date: '', time: '12:00', end_time: '14:00', deadline: '', location: '', 
     content_type: 'PHOTO', document_link: '', result_link: '',
     max_participants: 1, required_skill: 'ANY', equipment_ids: [] as number[] 
   });
+
 
   const [chatModal, setChatModal] = useState({ open: false, eventId: null as any });
   const [chatMessages, setChatMessages] = useState<any[]>([]);
@@ -94,6 +96,18 @@ const Dashboard = () => {
       else if (action === 'save') {
         // Подготовка данных для отправки (чистка ссылок)
         const payload = { ...data };
+        if (payload.document_link) {
+          payload.document_link = payload.document_link.trim().split(/\s+/).map((link: string) => {
+            if (!link) return '';
+            return /^https?:\/\//i.test(link) ? link : `https://${link}`;
+          }).filter(Boolean).join(' ');
+        }
+        if (payload.result_link) {
+          payload.result_link = payload.result_link.trim().split(/\s+/).map((link: string) => {
+            if (!link) return '';
+            return /^https?:\/\//i.test(link) ? link : `https://${link}`;
+          }).filter(Boolean).join(' ');
+        }
         if (id) await api.patch(`events/${id}/`, payload);
         else await api.post('events/', payload);
       }
@@ -155,9 +169,39 @@ const Dashboard = () => {
             <Box sx={{ mb: 4 }}>
               <Button fullWidth variant="contained" color="secondary" onClick={() => { setDrawerOpen(false); navigate('/analytics'); }} sx={{ mb: 2 }}>Аналитика</Button>
               <Button fullWidth variant="contained" color="info" onClick={() => { setDrawerOpen(false); navigate('/warehouse'); }} sx={{ mb: 2 }}>Склад оборудования</Button>
-              <Button fullWidth variant="contained" onClick={async () => { await api.post('invites/', {}); setInvites((await api.get('invites/')).data); toast.success("Код создан"); }} sx={{ mb: 2 }}>Новый инвайт</Button>
-              <Paper variant="outlined" sx={{ maxHeight: 200, overflow: 'auto' }}>
-                <List dense>{invites.map(i => <ListItem key={i.id}><ListItemText primary={i.code} /></ListItem>)}</List>
+              <Button fullWidth variant="contained" color="warning" onClick={() => { setDrawerOpen(false); navigate('/users'); }} sx={{ mb: 2 }}>Управление пользователями</Button>
+              
+              <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 1, mt: 1 }}>Генерация инвайтов:</Typography>
+              <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
+                <FormControl size="small" sx={{ flexGrow: 1 }}>
+                  <InputLabel>Роль</InputLabel>
+                  <Select
+                    value={inviteRole}
+                    label="Роль"
+                    onChange={(e) => setInviteRole(e.target.value)}
+                  >
+                    <MenuItem value="ORGANIZER">Организатор</MenuItem>
+                    <MenuItem value="MEDIA">СМИ</MenuItem>
+                  </Select>
+                </FormControl>
+                <Button variant="contained" onClick={async () => { 
+                  await api.post('invites/', { role: inviteRole }); 
+                  setInvites((await api.get('invites/')).data); 
+                  toast.success("Код создан"); 
+                }}>Создать</Button>
+              </Stack>
+
+              <Paper variant="outlined" sx={{ maxHeight: 150, overflow: 'auto' }}>
+                <List dense>
+                  {invites.map(i => (
+                    <ListItem key={i.id}>
+                      <ListItemText 
+                        primary={i.code} 
+                        secondary={i.role === 'ORGANIZER' ? 'Организатор' : (i.role === 'MEDIA' ? 'СМИ' : i.role)} 
+                      />
+                    </ListItem>
+                  ))}
+                </List>
               </Paper>
             </Box>
           )}
@@ -170,9 +214,10 @@ const Dashboard = () => {
           <Typography variant="h4" sx={{ fontWeight: 900 }}>Мероприятия</Typography>
           {(isAdmin || user?.role === 'ORGANIZER') && (
             <Button variant="contained" onClick={() => { 
-              setForm({title:'', date:'', time:'12:00', deadline: '', location:'', content_type:'PHOTO', document_link:'', result_link: '', max_participants: 1, required_skill: 'ANY', equipment_ids: []}); 
+              setForm({title:'', date:'', time:'12:00', end_time:'14:00', deadline: '', location:'', content_type:'PHOTO', document_link:'', result_link: '', max_participants: 1, required_skill: 'ANY', equipment_ids: []}); 
               setModal({open: true, id: null}); 
             }}>Создать</Button>
+
           )}
         </Box>
 
@@ -189,9 +234,10 @@ const Dashboard = () => {
                   {(isAdmin || (user?.role === 'ORGANIZER' && event.responsible_person?.id === user?.id)) && (
                     <Stack direction="row">
                       <IconButton size="small" onClick={() => {
-                        setForm({...event, equipment_ids: event.booked_equipment?.map((eq:any) => eq.id) || []}); 
+                        setForm({...event, end_time: event.end_time || '', equipment_ids: event.booked_equipment?.map((eq:any) => eq.id) || []}); 
                         setModal({open: true, id: event.id});
                       }}><EditIcon/></IconButton>
+
                       <IconButton size="small" color="error" onClick={() => handleAction(event.id, 'delete')}><DeleteIcon/></IconButton>
                     </Stack>
                   )}
@@ -199,8 +245,9 @@ const Dashboard = () => {
                 
                 <Typography variant="h6" sx={{ fontWeight: 900, mb: 0.5 }}>{event.title}</Typography>
                 <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', mb: 1, color: 'text.secondary' }}>
-                  <TimerIcon sx={{ fontSize: 14, mr: 0.5 }} /> {format(parseISO(event.date), 'dd.MM.yyyy')} в {event.time?.slice(0,5)}
+                  <TimerIcon sx={{ fontSize: 14, mr: 0.5 }} /> {format(parseISO(event.date), 'dd.MM.yyyy')} в {event.time?.slice(0,5)}{event.end_time ? ` - ${event.end_time.slice(0,5)}` : ''}
                 </Typography>
+
 
                 <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
                   <Chip icon={<MilitaryTechIcon />} label={event.required_skill} size="small" variant="outlined" color={event.required_skill !== 'ANY' ? 'secondary' : 'default'} />
@@ -218,7 +265,22 @@ const Dashboard = () => {
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Typography variant="caption" color="text.disabled">Орг: {event.responsible_person?.first_name || event.responsible_person?.username}</Typography>
                     <Stack direction="row" spacing={1}>
-                      {event.result_link && <IconButton size="small" onClick={() => window.open(event.result_link)} color="success"><LinkIcon /></IconButton>}
+                      {event.result_link && (
+                        <IconButton
+                          size="small"
+                          onClick={() => {
+                            event.result_link.trim().split(/\s+/).forEach((link: string) => {
+                              if (link) {
+                                const target = /^https?:\/\//i.test(link) ? link : `https://${link}`;
+                                window.open(target, '_blank');
+                              }
+                            });
+                          }}
+                          color="success"
+                        >
+                          <LinkIcon />
+                        </IconButton>
+                      )}
                       <IconButton size="small" onClick={() => {setChatModal({open: true, eventId: event.id}); loadChat(event.id);}}><ChatIcon/></IconButton>
                     </Stack>
                   </Box>
@@ -254,8 +316,10 @@ const Dashboard = () => {
           <TextField fullWidth label="Название" margin="dense" value={form.title} onChange={e => setForm({...form, title: e.target.value})} />
           <Stack direction="row" spacing={2} sx={{ mt: 1 }}>
             <TextField fullWidth type="date" label="Дата" slotProps={{ inputLabel: { shrink: true } }} value={form.date} onChange={e => setForm({...form, date: e.target.value})} />
-            <TextField fullWidth type="time" label="Время" slotProps={{ inputLabel: { shrink: true } }} value={form.time} onChange={e => setForm({...form, time: e.target.value})} />
+            <TextField fullWidth type="time" label="Время начала" slotProps={{ inputLabel: { shrink: true } }} value={form.time} onChange={e => setForm({...form, time: e.target.value})} />
+            <TextField fullWidth type="time" label="Время окончания" slotProps={{ inputLabel: { shrink: true } }} value={form.end_time || ''} onChange={e => setForm({...form, end_time: e.target.value})} />
           </Stack>
+
           
           <TextField fullWidth label="Локация" margin="normal" value={form.location} onChange={e => setForm({...form, location: e.target.value})} />
           

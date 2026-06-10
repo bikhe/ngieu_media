@@ -415,6 +415,11 @@ const Warehouse = () => {
                         </TableCell>
                         <TableCell>
                           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                            {loan.loan_start && loan.loan_end && (
+                              <Typography variant="caption" color="primary.main" sx={{ fontWeight: 'bold' }}>
+                                Период: {formatDateString(loan.loan_start)} - {formatDateString(loan.loan_end)}
+                              </Typography>
+                            )}
                             <Typography variant="caption" color="text.secondary">
                               Запрос: {formatDateString(loan.requested_at)}
                             </Typography>
@@ -430,6 +435,7 @@ const Warehouse = () => {
                             )}
                           </Box>
                         </TableCell>
+
                         <TableCell align="right">
                           <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
                             {loan.status === 'REQUESTED' && (

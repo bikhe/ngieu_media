@@ -192,7 +192,12 @@ export const HomeScreen: React.FC = () => {
     if (selectedSubmitEventId === null || !submitLink.trim()) return;
     setSubmittingWork(true);
     try {
-      const success = await apiService.submitWork(selectedSubmitEventId, submitLink.trim());
+      const normalizedLink = submitLink.trim().split(/\s+/).map((link: string) => {
+        if (!link) return '';
+        return /^https?:\/\//i.test(link) ? link : `https://${link}`;
+      }).filter(Boolean).join(' ');
+
+      const success = await apiService.submitWork(selectedSubmitEventId, normalizedLink);
       if (success) {
         setSubmitOpen(false);
         await loadData(false);
@@ -228,10 +233,10 @@ export const HomeScreen: React.FC = () => {
     }
   };
 
-  const handleRequestEquipmentConfirm = async (equipmentId: number, quantity: number, eventId: number | null, comment: string) => {
+  const handleRequestEquipmentConfirm = async (equipmentId: number, quantity: number, eventId: number | null, comment: string, loanStart: string, loanEnd: string) => {
     setLoading(true);
     try {
-      const success = await apiService.createLoan(equipmentId, quantity, eventId, comment);
+      const success = await apiService.createLoan(equipmentId, quantity, eventId, comment, loanStart, loanEnd);
       if (success) {
         await loadData(false);
         alert('Запрос на технику успешно создан и ожидает одобрения.');
@@ -244,6 +249,7 @@ export const HomeScreen: React.FC = () => {
       setLoading(false);
     }
   };
+
 
   // Filter tasks
   const myEvents = events.filter((e) =>
@@ -368,13 +374,19 @@ export const HomeScreen: React.FC = () => {
                       <Box>
                         <Typography sx={{ fontWeight: 'bold' }}>{loan.equipment?.name}</Typography>
                         {loan.equipment?.serial_number && (
-                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontFamily: 'monospace' }}>
-                            S/N: {loan.equipment.serial_number}
-                          </Typography>
+                           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontFamily: 'monospace' }}>
+                             S/N: {loan.equipment.serial_number}
+                           </Typography>
                         )}
                         <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                           Количество: {loan.quantity} шт.
                         </Typography>
+                        {loan.loan_start && loan.loan_end && (
+                          <Typography variant="caption" color="primary" sx={{ display: 'block', mt: 0.5, fontWeight: 'medium' }}>
+                            Период: {new Date(loan.loan_start).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} - {new Date(loan.loan_end).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                          </Typography>
+                        )}
+
                         {loan.event_title && (
                           <Typography variant="caption" color="primary" sx={{ display: 'block', mt: 0.5 }}>
                             Задача: {loan.event_title}
@@ -416,10 +428,16 @@ export const HomeScreen: React.FC = () => {
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <Box>
                         <Typography variant="body2" sx={{ fontWeight: 'bold' }}>{loan.equipment?.name} ({loan.quantity} шт.)</Typography>
+                        {loan.loan_start && loan.loan_end && (
+                          <Typography variant="caption" color="primary" sx={{ display: 'block', mt: 0.5, fontWeight: 'medium' }}>
+                            Период: {new Date(loan.loan_start).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} - {new Date(loan.loan_end).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                          </Typography>
+                        )}
                         <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                           Создан: {new Date(loan.requested_at).toLocaleDateString()}
                         </Typography>
                       </Box>
+
                       <Chip
                         label={
                           loan.status === 'REQUESTED' ? 'Ожидает одобрения' :

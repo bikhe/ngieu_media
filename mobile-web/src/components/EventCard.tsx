@@ -37,6 +37,9 @@ interface EventData {
   media_participants: Participant[];
   responsible_person?: ResponsiblePerson;
   document_link?: string;
+  time?: string;
+  end_time?: string;
+
 }
 
 interface EventCardProps {
@@ -98,10 +101,18 @@ export const EventCard: React.FC<EventCardProps> = ({
   // Format date
   let formattedDate = event.date;
   try {
-    formattedDate = format(parseISO(event.date), 'dd MMMM yyyy', { locale: ru });
+    const parsedDate = parseISO(event.date);
+    formattedDate = format(parsedDate, 'dd MMMM yyyy', { locale: ru });
+    if (event.time) {
+      formattedDate += ` в ${event.time.slice(0, 5)}`;
+      if (event.end_time) {
+        formattedDate += ` - ${event.end_time.slice(0, 5)}`;
+      }
+    }
   } catch (err) {
     console.error('Date parsing failed:', err);
   }
+
 
   const statusInfo = getStatusDetails(event.status);
 
@@ -169,7 +180,16 @@ export const EventCard: React.FC<EventCardProps> = ({
             <IconButton
               size="small"
               color="primary"
-              onClick={() => window.open(event.document_link, '_blank')}
+              onClick={() => {
+                const docLink = event.document_link;
+                if (!docLink) return;
+                docLink.trim().split(/\s+/).forEach((link: string) => {
+                  if (link) {
+                    const target = /^https?:\/\//i.test(link) ? link : `https://${link}`;
+                    window.open(target, '_blank');
+                  }
+                });
+              }}
               title="Открыть ТЗ"
             >
               <FileText size={18} />
