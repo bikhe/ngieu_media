@@ -19,7 +19,7 @@ import {
   Paper,
   Stack,
 } from '@mui/material';
-import { User, LogOut, RefreshCw } from 'lucide-react';
+import { User, LogOut, RefreshCw, Calendar as CalendarIcon, List as ListIcon } from 'lucide-react';
 import { apiService } from '../services/api';
 import EventCard from './EventCard';
 import ProfileModal from './ProfileModal';
@@ -27,6 +27,7 @@ import EquipmentModal from './EquipmentModal';
 import ChatDrawer from './ChatDrawer';
 import RequestEquipmentModal from './RequestEquipmentModal';
 import { useUpdatesBroker } from '../services/useUpdatesBroker';
+import { CalendarView } from './CalendarView';
 
 export const HomeScreen: React.FC = () => {
   const [events, setEvents] = useState<any[]>([]);
@@ -35,6 +36,8 @@ export const HomeScreen: React.FC = () => {
   const [me, setMe] = useState<any>({});
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState(0);
+  const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
 
   // Modals state
   const [profileOpen, setProfileOpen] = useState(false);
@@ -262,6 +265,17 @@ export const HomeScreen: React.FC = () => {
     (e) => e.status === 'OPEN' && !myEvents.some((m) => m.id === e.id)
   );
 
+  const currentTabEvents = activeTab === 0 ? openEvents : (activeTab === 1 ? myEvents : []);
+
+  const selectedDateEvents = currentTabEvents.filter(e => {
+    const d = new Date(selectedDate);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const dateStr = `${y}-${m}-${day}`;
+    return e.date === dateStr;
+  });
+
   if (loading && events.length === 0) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
@@ -278,6 +292,11 @@ export const HomeScreen: React.FC = () => {
           <Typography variant="h6" sx={{ flexGrow: 1, fontWeight: 'bold' }}>
             СМИ НГИЭУ
           </Typography>
+          {(activeTab === 0 || activeTab === 1) && (
+            <IconButton onClick={() => setViewMode(viewMode === 'list' ? 'calendar' : 'list')} color="primary" title={viewMode === 'list' ? 'Календарь' : 'Список'}>
+              {viewMode === 'list' ? <CalendarIcon size={20} /> : <ListIcon size={20} />}
+            </IconButton>
+          )}
           <IconButton onClick={() => loadData(true)} color="primary" title="Обновить">
             <RefreshCw size={20} />
           </IconButton>
@@ -307,43 +326,77 @@ export const HomeScreen: React.FC = () => {
 
       {/* Tab Contents */}
       <Box sx={{ mt: 2, flexGrow: 1 }} className="fade-in">
-        {activeTab === 0 && (
-          openEvents.length === 0 ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 8 }}>
-              <Typography color="text.secondary">Нет свободных заявок</Typography>
-            </Box>
-          ) : (
-            openEvents.map((event) => (
-              <EventCard
-                key={event.id}
-                event={event}
-                isMyTask={false}
-                currentUser={me}
-                onTakeTask={handleTakeTask}
-                onSubmitWork={handleSubmitWorkOpen}
-                onOpenChat={handleOpenChat}
-              />
-            ))
-          )
-        )}
-        {activeTab === 1 && (
-          myEvents.length === 0 ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 8 }}>
-              <Typography color="text.secondary">Вы еще не взяли задач</Typography>
-            </Box>
-          ) : (
-            myEvents.map((event) => (
-              <EventCard
-                key={event.id}
-                event={event}
-                isMyTask={true}
-                currentUser={me}
-                onTakeTask={handleTakeTask}
-                onSubmitWork={handleSubmitWorkOpen}
-                onOpenChat={handleOpenChat}
-              />
-            ))
-          )
+        {viewMode === 'calendar' && (activeTab === 0 || activeTab === 1) ? (
+          <Box sx={{ px: 2 }}>
+            <CalendarView
+              events={currentTabEvents}
+              selectedDate={selectedDate}
+              onSelectDate={setSelectedDate}
+            />
+            
+            <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 2, color: 'text.secondary' }}>
+              События на {selectedDate.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}:
+            </Typography>
+
+            {selectedDateEvents.length === 0 ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 4 }}>
+                <Typography color="text.secondary">Нет событий на этот день</Typography>
+              </Box>
+            ) : (
+              selectedDateEvents.map((event) => (
+                <EventCard
+                  key={event.id}
+                  event={event}
+                  isMyTask={activeTab === 1}
+                  currentUser={me}
+                  onTakeTask={handleTakeTask}
+                  onSubmitWork={handleSubmitWorkOpen}
+                  onOpenChat={handleOpenChat}
+                />
+              ))
+            )}
+          </Box>
+        ) : (
+          <>
+            {activeTab === 0 && (
+              openEvents.length === 0 ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 8 }}>
+                  <Typography color="text.secondary">Нет свободных заявок</Typography>
+                </Box>
+              ) : (
+                openEvents.map((event) => (
+                  <EventCard
+                    key={event.id}
+                    event={event}
+                    isMyTask={false}
+                    currentUser={me}
+                    onTakeTask={handleTakeTask}
+                    onSubmitWork={handleSubmitWorkOpen}
+                    onOpenChat={handleOpenChat}
+                  />
+                ))
+              )
+            )}
+            {activeTab === 1 && (
+              myEvents.length === 0 ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 8 }}>
+                  <Typography color="text.secondary">Вы еще не взяли задач</Typography>
+                </Box>
+              ) : (
+                myEvents.map((event) => (
+                  <EventCard
+                    key={event.id}
+                    event={event}
+                    isMyTask={true}
+                    currentUser={me}
+                    onTakeTask={handleTakeTask}
+                    onSubmitWork={handleSubmitWorkOpen}
+                    onOpenChat={handleOpenChat}
+                  />
+                ))
+              )
+            )}
+          </>
         )}
         {activeTab === 2 && me.features?.equipment_booking === true && (
           <Box sx={{ px: 2 }}>
