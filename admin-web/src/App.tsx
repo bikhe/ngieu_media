@@ -5,6 +5,8 @@ import { ThemeProvider, createTheme, CssBaseline } from '@mui/material';
 // Импортируем наши страницы
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
+import Analytics from './pages/Analytics';
+import Warehouse from './pages/Warehouse';
 
 // Создаем контекст для глобальных настроек (тема и бренд)
 export const ColorModeContext = createContext({ 
@@ -47,6 +49,8 @@ function App() {
             {/* Если пользователь зашел на корень "/", отправляем его в Dashboard. 
                 Внутри Dashboard (в useEffect) есть защита: если токена нет, его выкинет обратно на /login */}
             <Route path="/" element={<Dashboard />} />
+            <Route path="/analytics" element={<Analytics />} />
+            <Route path="/warehouse" element={<Warehouse />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Router>

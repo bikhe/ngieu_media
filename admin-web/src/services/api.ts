@@ -1,8 +1,8 @@
 import axios from 'axios';
 
 const api = axios.create({
-  // Замени на IP своего сервера при деплое
-  baseURL: 'localhost:8000/api',
+  // Замени на IP своего сервера при деплое или укажи в .env
+  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:8000/api',
 });
 
 // Перехватчик: перед каждым запросом достаем токен из памяти и приклеиваем его

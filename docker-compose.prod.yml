@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_DB: ${DB_NAME:-events_db}
+      POSTGRES_USER: ${DB_USER:-events_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # Port 5432 is not exposed for security in production
+
+  backend:
+    build:
+      context: ./backend
+    restart: always
+    depends_on:
+      - db
+    env_file:
+      - ./backend/.env
+    volumes:
+      - django_static:/app/staticfiles
+      - django_media:/app/media
+    # In production, we run the default CMD (gunicorn) instead of python manage.py runserver.
+    # We also apply migrations before starting.
+    command: >
+      sh -c "python manage.py migrate &&
+             gunicorn --bind 0.0.0.0:8000 --workers 3 core.wsgi:application"
+
+  bot:
+    build:
+      context: ./backend
+    restart: always
+    depends_on:
+      - db
+      - backend
+    env_file:
+      - ./backend/.env
+    command: python manage.py run_bot
+
+  nginx:
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+      args:
+        - REACT_APP_API_URL=${REACT_APP_API_URL:-https://api.pivas.su/api}
+        - VITE_API_URL=${VITE_API_URL:-https://api.pivas.su/api}
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - backend
+    volumes:
+      - django_static:/usr/share/nginx/html/django_static:ro
+      - django_media:/usr/share/nginx/html/django_media:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /var/lib/letsencrypt:/var/lib/letsencrypt:ro
+
+volumes:
+  postgres_data:
+  django_static:
+  django_media:

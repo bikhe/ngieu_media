@@ -1,3 +1,225 @@
 from django.test import TestCase
+from django.utils import timezone
+from rest_framework.test import APIClient
+from rest_framework import status
+from django.contrib.auth import get_user_model
+from .models import InviteCode, Equipment, Event
 
-# Create your tests here.
+User = get_user_model()
+
+class MediaExchangeTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        
+        # Create users
+        self.admin = User.objects.create_superuser(username='admin', password='password123', role='MAIN_ADMIN')
+        self.org1 = User.objects.create_user(username='org1', password='password123', role='ORGANIZER')
+        self.org2 = User.objects.create_user(username='org2', password='password123', role='ORGANIZER')
+        self.media1 = User.objects.create_user(username='media1', password='password123', role='MEDIA', skill_level='ANY')
+        self.media2 = User.objects.create_user(username='media2', password='password123', role='MEDIA', skill_level='ANY')
+        
+        # Create equipment
+        self.camera = Equipment.objects.create(name='Camera A', total_quantity=1)
+        self.lens = Equipment.objects.create(name='Lens B', total_quantity=2)
+
+    def test_registration_role_from_invite(self):
+        # Create invite code for media
+        code_media = InviteCode.objects.create(code='MEDIA123', role='MEDIA')
+        
+        # Register user
+        response = self.client.post('/api/register/', {
+            'username': 'new_media',
+            'password': 'password123',
+            'invite_code': 'MEDIA123'
+        })
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        # Verify user role
+        new_user = User.objects.get(username='new_media')
+        self.assertEqual(new_user.role, 'MEDIA')
+        self.assertTrue(InviteCode.objects.get(code='MEDIA123').is_used)
+
+    def test_event_editing_permissions(self):
+        # Create event owned by org1
+        event = Event.objects.create(
+            title='Org1 Event',
+            date=timezone.now().date(),
+            responsible_person=self.org1,
+            status='OPEN'
+        )
+        
+        # Authenticate as org2 (different organizer)
+        self.client.force_authenticate(user=self.org2)
+        response = self.client.patch(f'/api/events/{event.id}/', {'title': 'Updated Title'})
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        
+        # Authenticate as media1
+        self.client.force_authenticate(user=self.media1)
+        response = self.client.patch(f'/api/events/{event.id}/', {'title': 'Updated Title'})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        
+        # Authenticate as admin
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.patch(f'/api/events/{event.id}/', {'title': 'Updated Title'})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        event.refresh_from_db()
+        self.assertEqual(event.title, 'Updated Title')
+        
+        # Authenticate as org1 (owner)
+        self.client.force_authenticate(user=self.org1)
+        response = self.client.patch(f'/api/events/{event.id}/', {'title': 'Updated Again'})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        event.refresh_from_db()
+        self.assertEqual(event.title, 'Updated Again')
+
+    def test_equipment_double_booking_prevention(self):
+        event_date = timezone.now().date()
+        
+        # Event 1 books camera
+        event1 = Event.objects.create(
+            title='Event 1',
+            date=event_date,
+            responsible_person=self.org1,
+            status='OPEN'
+        )
+        event1.booked_equipment.add(self.camera)
+        
+        # Event 2 tries to book same camera (total_quantity is 1)
+        self.client.force_authenticate(user=self.org1)
+        response = self.client.post('/api/events/', {
+            'title': 'Event 2',
+            'date': str(event_date),
+            'location': 'Main Hall',
+            'content_type': 'PHOTO',
+            'required_skill': 'ANY',
+            'max_participants': 1,
+            'equipment_ids': [self.camera.id]
+        })
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('уже полностью забронировано', str(response.data))
+
+    def test_take_task_equipment_conflict(self):
+        event_date = timezone.now().date()
+        
+        # Event 1 books camera (status OPEN)
+        event1 = Event.objects.create(
+            title='Event 1',
+            date=event_date,
+            responsible_person=self.org1,
+            status='OPEN'
+        )
+        event1.booked_equipment.add(self.camera)
+        
+        # Event 2 is OPEN and has no equipment initially
+        event2 = Event.objects.create(
+            title='Event 2',
+            date=event_date,
+            responsible_person=self.org1,
+            status='OPEN'
+        )
+        
+        # Media 1 tries to take Event 2 and book the same camera
+        self.client.force_authenticate(user=self.media1)
+        response = self.client.post(f'/api/events/{event2.id}/take_task/', {
+            'equipment_ids': [self.camera.id]
+        })
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('уже полностью забронирована', str(response.data))
+
+    def test_equipment_permissions(self):
+        # Media tries to create equipment -> 403
+        self.client.force_authenticate(user=self.media1)
+        response = self.client.post('/api/equipment/', {
+            'name': 'Hacked Camera',
+            'total_quantity': 5
+        })
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        
+        # Org tries to create equipment -> 403
+        self.client.force_authenticate(user=self.org1)
+        response = self.client.post('/api/equipment/', {
+            'name': 'Hacked Camera',
+            'total_quantity': 5
+        })
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Admin tries to create equipment -> 201
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.post('/api/equipment/', {
+            'name': 'Admin Camera',
+            'total_quantity': 5
+        })
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        new_eq_id = response.data['id']
+        
+        # Media tries to delete equipment -> 403
+        self.client.force_authenticate(user=self.media1)
+        response = self.client.delete(f'/api/equipment/{new_eq_id}/')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_analytics_permissions_and_data(self):
+        # 1. Verify permissions
+        self.client.force_authenticate(user=self.media1)
+        response = self.client.get('/api/events/analytics/')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.client.force_authenticate(user=self.org1)
+        response = self.client.get('/api/events/analytics/')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        # 2. Setup mock events for analytics verification
+        # Event 1: Completed photo shoot with camera
+        e1 = Event.objects.create(
+            title='Analytics Shoot 1',
+            date=timezone.now().date(),
+            responsible_person=self.org1,
+            status='COMPLETED',
+            content_type='PHOTO'
+        )
+        e1.media_participants.add(self.media1)
+        e1.booked_equipment.add(self.camera)
+
+        # Event 2: Open video shoot (no media or equipment)
+        e2 = Event.objects.create(
+            title='Analytics Shoot 2',
+            date=timezone.now().date(),
+            responsible_person=self.org2,
+            status='OPEN',
+            content_type='VIDEO'
+        )
+
+        # 3. Call as admin and verify data structure
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.get('/api/events/analytics/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.data
+        self.assertIn('summary', data)
+        self.assertEqual(data['summary']['total_events'], 2)
+        self.assertEqual(data['summary']['completed_events'], 1)
+        self.assertEqual(data['summary']['overdue_events'], 0)
+
+        # Statuses count
+        self.assertEqual(data['status_distribution']['COMPLETED'], 1)
+        self.assertEqual(data['status_distribution']['OPEN'], 1)
+        self.assertEqual(data['status_distribution']['IN_PROGRESS'], 0)
+
+        # Content types
+        self.assertEqual(data['content_type_distribution']['PHOTO'], 1)
+        self.assertEqual(data['content_type_distribution']['VIDEO'], 1)
+
+        # Equipment usage
+        camera_util = next(item for item in data['equipment_utilization'] if item['name'] == 'Camera A')
+        self.assertEqual(camera_util['bookings_count'], 1)
+        self.assertEqual(camera_util['booking_rate'], 50.0)
+
+        # Media stats
+        media1_stats = next(item for item in data['media_stats'] if item['username'] == 'media1')
+        self.assertEqual(media1_stats['total_taken'], 1)
+        self.assertEqual(media1_stats['completed_count'], 1)
+        self.assertEqual(media1_stats['success_rate'], 100.0)
+
+        # Organizer stats
+        org1_stats = next(item for item in data['organizer_stats'] if item['username'] == 'org1')
+        self.assertEqual(org1_stats['created_count'], 1)
+

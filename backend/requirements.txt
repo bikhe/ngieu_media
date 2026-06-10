@@ -6,3 +6,5 @@ django-filter
 requests
 gunicorn
 psycopg2-binary
+aiogram
+python-dotenv
