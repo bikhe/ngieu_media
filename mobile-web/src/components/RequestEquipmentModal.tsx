@@ -23,6 +23,9 @@ interface EquipmentItem {
 interface EventItem {
   id: number;
   title: string;
+  date: string;
+  time?: string;
+  end_time?: string;
 }
 
 interface RequestEquipmentModalProps {
@@ -30,7 +33,14 @@ interface RequestEquipmentModalProps {
   onClose: () => void;
   equipmentList: EquipmentItem[];
   myEvents: EventItem[];
-  onConfirm: (equipmentId: number, quantity: number, eventId: number | null, comment: string) => Promise<void>;
+  onConfirm: (
+    equipmentId: number,
+    quantity: number,
+    eventId: number | null,
+    comment: string,
+    loanStart: string,
+    loanEnd: string
+  ) => Promise<void>;
 }
 
 export const RequestEquipmentModal: React.FC<RequestEquipmentModalProps> = ({
@@ -44,17 +54,48 @@ export const RequestEquipmentModal: React.FC<RequestEquipmentModalProps> = ({
   const [quantity, setQuantity] = useState<number>(1);
   const [selectedEventId, setSelectedEventId] = useState<number | 'none'>('none');
   const [comment, setComment] = useState<string>('');
+  const [loanStart, setLoanStart] = useState<string>('');
+  const [loanEnd, setLoanEnd] = useState<string>('');
   const [submitting, setSubmitting] = useState<boolean>(false);
+
+  React.useEffect(() => {
+    if (selectedEventId !== 'none') {
+      const evt = myEvents.find((e) => e.id === selectedEventId);
+      if (evt) {
+        const start = evt.time ? `${evt.date}T${evt.time.slice(0, 5)}` : `${evt.date}T12:00`;
+        const end = evt.end_time ? `${evt.date}T${evt.end_time.slice(0, 5)}` : `${evt.date}T14:00`;
+        setLoanStart(start);
+        setLoanEnd(end);
+      }
+    } else {
+      const now = new Date();
+      const formatDate = (d: Date) => {
+        const pad = (n: number) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:00`;
+      };
+      setLoanStart(formatDate(now));
+      const inTwoHours = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+      setLoanEnd(formatDate(inTwoHours));
+    }
+  }, [selectedEventId, myEvents]);
 
   const selectedEq = equipmentList.find((e) => e.id === selectedEqId);
   const maxQty = selectedEq ? selectedEq.available_quantity : 1;
 
   const handleSubmit = async () => {
     if (selectedEqId === '') return;
+    if (!loanStart || !loanEnd) {
+      alert("Укажите время начала и окончания бронирования");
+      return;
+    }
+    if (new Date(loanStart) >= new Date(loanEnd)) {
+      alert("Время начала должно быть раньше времени окончания");
+      return;
+    }
     setSubmitting(true);
     try {
       const eventId = selectedEventId === 'none' ? null : selectedEventId;
-      await onConfirm(selectedEqId, quantity, eventId, comment);
+      await onConfirm(selectedEqId, quantity, eventId, comment, loanStart, loanEnd);
       onClose();
     } catch (err) {
       console.error(err);
@@ -62,6 +103,7 @@ export const RequestEquipmentModal: React.FC<RequestEquipmentModalProps> = ({
       setSubmitting(false);
     }
   };
+
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
@@ -125,6 +167,26 @@ export const RequestEquipmentModal: React.FC<RequestEquipmentModalProps> = ({
           </FormControl>
 
           <TextField
+            type="datetime-local"
+            label="С какого времени"
+            value={loanStart}
+            onChange={(e) => setLoanStart(e.target.value)}
+            slotProps={{ inputLabel: { shrink: true } }}
+            fullWidth
+            required
+          />
+
+          <TextField
+            type="datetime-local"
+            label="До какого времени"
+            value={loanEnd}
+            onChange={(e) => setLoanEnd(e.target.value)}
+            slotProps={{ inputLabel: { shrink: true } }}
+            fullWidth
+            required
+          />
+
+          <TextField
             label="Цель получения / Комментарий"
             multiline
             rows={2}
@@ -132,6 +194,7 @@ export const RequestEquipmentModal: React.FC<RequestEquipmentModalProps> = ({
             onChange={(e) => setComment(e.target.value)}
             fullWidth
           />
+
         </Stack>
       </DialogContent>
       <DialogActions sx={{ p: 2, pt: 0 }}>

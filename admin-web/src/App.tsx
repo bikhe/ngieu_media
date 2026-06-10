@@ -7,6 +7,7 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Analytics from './pages/Analytics';
 import Warehouse from './pages/Warehouse';
+import UsersManagement from './pages/UsersManagement';
 
 // Создаем контекст для глобальных настроек (тема и бренд)
 export const ColorModeContext = createContext({ 
@@ -51,6 +52,7 @@ function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/warehouse" element={<Warehouse />} />
+            <Route path="/users" element={<UsersManagement />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Router>

@@ -126,6 +126,103 @@ class MediaExchangeTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('уже полностью забронирована', str(response.data))
 
+    def test_equipment_time_overlap_booking(self):
+        from datetime import time
+        event_date = timezone.now().date()
+        
+        # Event 1 books camera from 12:00 to 14:00
+        event1 = Event.objects.create(
+            title='Event 1',
+            date=event_date,
+            time=time(12, 0),
+            end_time=time(14, 0),
+            responsible_person=self.org1,
+            status='OPEN'
+        )
+        event1.booked_equipment.add(self.camera)
+        
+        self.client.force_authenticate(user=self.org1)
+        
+        # Event 2 tries to book same camera from 10:00 to 12:00 (non-overlapping, touching at 12:00) -> Should succeed
+        response = self.client.post('/api/events/', {
+            'title': 'Event 2',
+            'date': str(event_date),
+            'time': '10:00',
+            'end_time': '12:00',
+            'location': 'Main Hall',
+            'content_type': 'PHOTO',
+            'required_skill': 'ANY',
+            'max_participants': 1,
+            'equipment_ids': [self.camera.id]
+        })
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        
+        # Event 3 tries to book same camera from 13:00 to 15:00 (overlapping 13:00-14:00) -> Should fail
+        response = self.client.post('/api/events/', {
+            'title': 'Event 3',
+            'date': str(event_date),
+            'time': '13:00',
+            'end_time': '15:00',
+            'location': 'Main Hall',
+            'content_type': 'PHOTO',
+            'required_skill': 'ANY',
+            'max_participants': 1,
+            'equipment_ids': [self.camera.id]
+        })
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        
+    def test_loan_time_overlap_booking(self):
+        from datetime import datetime, time
+        from django.utils.timezone import make_aware, get_current_timezone
+        from .models import EquipmentLoan
+        
+        event_date = timezone.now().date()
+        
+        # Create an EquipmentLoan from 12:00 to 14:00 on event_date
+        tz = get_current_timezone()
+        loan_start = make_aware(datetime.combine(event_date, time(12, 0)), tz)
+        loan_end = make_aware(datetime.combine(event_date, time(14, 0)), tz)
+        
+        loan = EquipmentLoan.objects.create(
+            equipment=self.camera,
+            user=self.media1,
+            status='ISSUED',
+            loan_start=loan_start,
+            loan_end=loan_end,
+            quantity=1
+        )
+        
+        self.client.force_authenticate(user=self.org1)
+        
+        # Event 1 tries to book same camera from 10:00 to 12:00 -> Should succeed
+        response = self.client.post('/api/events/', {
+            'title': 'Event 1',
+            'date': str(event_date),
+            'time': '10:00',
+            'end_time': '12:00',
+            'location': 'Main Hall',
+            'content_type': 'PHOTO',
+            'required_skill': 'ANY',
+            'max_participants': 1,
+            'equipment_ids': [self.camera.id]
+        })
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        
+        # Event 2 tries to book same camera from 13:00 to 15:00 -> Should fail
+        response = self.client.post('/api/events/', {
+            'title': 'Event 2',
+            'date': str(event_date),
+            'time': '13:00',
+            'end_time': '15:00',
+            'location': 'Main Hall',
+            'content_type': 'PHOTO',
+            'required_skill': 'ANY',
+            'max_participants': 1,
+            'equipment_ids': [self.camera.id]
+        })
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
     def test_equipment_permissions(self):
         # Media tries to create equipment -> 403
         self.client.force_authenticate(user=self.media1)
@@ -222,4 +319,60 @@ class MediaExchangeTests(TestCase):
         # Organizer stats
         org1_stats = next(item for item in data['organizer_stats'] if item['username'] == 'org1')
         self.assertEqual(org1_stats['created_count'], 1)
+
+    def test_user_management_permissions_and_crud(self):
+        # 1. Non-admin user tries to create a user -> 403
+        self.client.force_authenticate(user=self.media1)
+        response = self.client.post('/api/users/', {
+            'username': 'temp_user',
+            'password': 'password123',
+            'role': 'ORGANIZER'
+        })
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        # 2. Admin creates a new user -> 201
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.post('/api/users/', {
+            'username': 'new_staff',
+            'password': 'securepassword123',
+            'role': 'ORGANIZER',
+            'first_name': 'Ivan',
+            'last_name': 'Ivanov'
+        })
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        new_user_id = response.data['id']
+        
+        # Verify user was created with correct hashed password and fields
+        new_user = User.objects.get(id=new_user_id)
+        self.assertEqual(new_user.username, 'new_staff')
+        self.assertEqual(new_user.role, 'ORGANIZER')
+        self.assertEqual(new_user.first_name, 'Ivan')
+        self.assertTrue(new_user.check_password('securepassword123'))
+
+        # 3. Non-admin user tries to edit -> 403
+        self.client.force_authenticate(user=self.media1)
+        response = self.client.patch(f'/api/users/{new_user_id}/', {'first_name': 'Petr'})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        # 4. Admin edits user and updates password -> 200
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.patch(f'/api/users/{new_user_id}/', {
+            'first_name': 'Petr',
+            'password': 'newpassword123'
+        })
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        new_user.refresh_from_db()
+        self.assertEqual(new_user.first_name, 'Petr')
+        self.assertTrue(new_user.check_password('newpassword123'))
+
+        # 5. Non-admin tries to delete -> 403
+        self.client.force_authenticate(user=self.media1)
+        response = self.client.delete(f'/api/users/{new_user_id}/')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        # 6. Admin deletes user -> 204
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.delete(f'/api/users/{new_user_id}/')
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(User.objects.filter(id=new_user_id).exists())
 

@@ -10,7 +10,7 @@ class User(AbstractUser):
 
 class InviteCode(models.Model):
     code = models.CharField(max_length=20, unique=True)
-    role = models.CharField(max_length=20, choices=User.ROLE_CHOICES, default='MEDIA')
+    role = models.CharField(max_length=20, choices=User.ROLE_CHOICES, default='ORGANIZER')
     is_used = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -44,7 +44,86 @@ class Equipment(models.Model):
         ).aggregate(total=models.Sum('quantity'))['total'] or 0
         return max(0, self.total_quantity - issued)
 
+    def get_available_quantity_at(self, start_dt, end_dt, exclude_event_id=None, exclude_loan_id=None):
+        from django.db.models import Q
+        from datetime import timedelta, datetime, time
+        from django.utils.timezone import is_aware, make_aware, get_current_timezone
+        
+        # 1. Find overlapping loans
+        loans_qs = self.loans.filter(
+            status__in=['REQUESTED', 'ISSUED', 'RETURN_REQUESTED'],
+            loan_start__lt=end_dt,
+            loan_end__gt=start_dt
+        )
+        if exclude_loan_id:
+            loans_qs = loans_qs.exclude(id=exclude_loan_id)
+            
+        # 2. Find overlapping events
+        events_qs = self.event_set.filter(
+            booked_equipment=self
+        ).exclude(status__in=['REJECTED', 'PENDING'])
+        if exclude_event_id:
+            events_qs = events_qs.exclude(id=exclude_event_id)
+            
+        intervals = []
+        
+        for loan in loans_qs:
+            if loan.loan_start and loan.loan_end:
+                intervals.append((loan.loan_start, loan.loan_end, loan.quantity))
+                
+        for evt in events_qs:
+            if evt.date:
+                evt_start = datetime.combine(evt.date, evt.time or time(0, 0))
+                if is_aware(start_dt):
+                    if not is_aware(evt_start):
+                        evt_start = make_aware(evt_start, get_current_timezone())
+                else:
+                    if is_aware(evt_start):
+                        evt_start = evt_start.replace(tzinfo=None)
+                        
+                if evt.end_time:
+                    evt_end = datetime.combine(evt.date, evt.end_time)
+                else:
+                    evt_end = evt_start + timedelta(hours=2)
+                    
+                if is_aware(start_dt) and not is_aware(evt_end):
+                    evt_end = make_aware(evt_end, get_current_timezone())
+                elif not is_aware(start_dt) and is_aware(evt_end):
+                    evt_end = evt_end.replace(tzinfo=None)
+                    
+                if evt_start < end_dt and evt_end > start_dt:
+                    intervals.append((evt_start, evt_end, 1))
+                    
+        if not intervals:
+            return self.total_quantity
+            
+        events = []
+        for s, e, q in intervals:
+            s_clamp = max(start_dt, s)
+            e_clamp = min(end_dt, e)
+            if s_clamp < e_clamp:
+                events.append((s_clamp, 1, q))
+                events.append((e_clamp, -1, q))
+                
+        if not events:
+            return self.total_quantity
+            
+        events.sort(key=lambda x: (x[0], x[1]))
+        
+        max_concurrent = 0
+        current = 0
+        for time_val, type_val, q in events:
+            if type_val == 1:
+                current += q
+                if current > max_concurrent:
+                    max_concurrent = current
+            else:
+                current -= q
+                
+        return max(0, self.total_quantity - max_concurrent)
+
     def __str__(self): return self.name
+
 
 class Event(models.Model):
     STATUS_CHOICES = (('PENDING', 'Ожидание'), ('OPEN', 'Открыт'), ('IN_PROGRESS', 'В работе'), ('COMPLETED', 'Готово'), ('REJECTED', 'Отклонено'), ('OVERDUE', 'Просрочено'))
@@ -53,7 +132,9 @@ class Event(models.Model):
     title = models.CharField(max_length=200)
     date = models.DateField()
     time = models.TimeField(null=True, blank=True)
+    end_time = models.TimeField(null=True, blank=True)
     deadline = models.DateTimeField(null=True, blank=True)
+
     location = models.CharField(max_length=255)
     content_type = models.CharField(max_length=10, choices=CONTENT_TYPES, default='PHOTO')
     required_skill = models.CharField(max_length=20, choices=User.SKILL_CHOICES, default='ANY')
@@ -93,9 +174,12 @@ class EquipmentLoan(models.Model):
     quantity = models.PositiveIntegerField(default=1)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='REQUESTED')
     requested_at = models.DateTimeField(auto_now_add=True)
+    loan_start = models.DateTimeField(null=True, blank=True)
+    loan_end = models.DateTimeField(null=True, blank=True)
     issued_at = models.DateTimeField(null=True, blank=True)
     returned_at = models.DateTimeField(null=True, blank=True)
     comment = models.TextField(blank=True, null=True)
+
 
     def __str__(self):
         return f"{self.user.username} - {self.equipment.name} ({self.status})"
@@ -119,6 +203,7 @@ from django.dispatch import receiver
 @receiver(post_save, sender=Comment)
 @receiver(post_save, sender=Equipment)
 @receiver(post_save, sender=EquipmentLoan)
+@receiver(post_save, sender=User)
 def log_save(sender, instance, created, **kwargs):
     action = 'create' if created else 'update'
     entity_type = sender.__name__.lower()
@@ -140,6 +225,9 @@ def log_save(sender, instance, created, **kwargs):
         extra_data['user'] = instance.user.username
         if instance.event:
             extra_data['event_id'] = instance.event_id
+    elif entity_type == 'user':
+        extra_data['username'] = instance.username
+        extra_data['role'] = instance.role
     
     # Auto-cleanup old logs to prevent DB bloat (keep last 1000 logs)
     try:
@@ -160,6 +248,7 @@ def log_save(sender, instance, created, **kwargs):
 @receiver(post_delete, sender=Comment)
 @receiver(post_delete, sender=Equipment)
 @receiver(post_delete, sender=EquipmentLoan)
+@receiver(post_delete, sender=User)
 def log_delete(sender, instance, **kwargs):
     entity_type = sender.__name__.lower()
     if entity_type == 'equipmentloan':
@@ -170,6 +259,8 @@ def log_delete(sender, instance, **kwargs):
         extra_data['event_id'] = instance.event_id
     elif entity_type == 'loan' and instance.event:
         extra_data['event_id'] = instance.event_id
+    elif entity_type == 'user':
+        extra_data['username'] = instance.username
 
     UpdateLog.objects.create(
         entity_type=entity_type,
