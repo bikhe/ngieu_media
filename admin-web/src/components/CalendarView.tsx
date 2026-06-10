@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { 
   Box, 
   Paper, 
-  Grid2 as Grid, 
   Typography, 
   IconButton, 
   Button, 
@@ -204,29 +203,28 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
       {/* Week Days Header */}
       <Paper elevation={0} variant="outlined" sx={{ p: 1.5, mb: 1, bgcolor: theme.palette.mode === 'light' ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.02)' }}>
-        <Grid container columns={7} spacing={1}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, textAlign: 'center' }}>
           {WEEK_DAYS.map((day, idx) => (
-            <Grid key={day} size={1} sx={{ textAlign: 'center' }}>
+            <Box key={day}>
               <Typography variant="subtitle2" sx={{ fontWeight: 700, color: idx >= 5 ? 'error.main' : 'text.secondary' }}>
                 {day}
               </Typography>
-            </Grid>
+            </Box>
           ))}
-        </Grid>
+        </Box>
       </Paper>
 
       {/* Calendar Grid */}
-      <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
-        <Grid container columns={7} spacing={0.5} sx={{ bgcolor: theme.palette.divider }}>
+      <Paper variant="outlined" sx={{ overflow: 'hidden', p: '2px', bgcolor: theme.palette.divider }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px' }}>
           {dayCells.map((cell, idx) => {
             const dateKey = formatDateKey(cell.date);
             const dayEvents = events.filter(e => e.date === dateKey);
             const currentIsToday = isToday(cell.date);
 
             return (
-              <Grid 
+              <Box 
                 key={idx} 
-                size={1} 
                 sx={{ 
                   height: 130, 
                   bgcolor: cell.isCurrentMonth 
@@ -313,10 +311,10 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                     );
                   })}
                 </Box>
-              </Grid>
+              </Box>
             );
           })}
-        </Grid>
+        </Box>
       </Paper>
 
       {/* Event Details Actions Popover */}
