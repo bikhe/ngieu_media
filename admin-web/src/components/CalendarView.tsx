@@ -330,9 +330,11 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           vertical: 'top',
           horizontal: 'center',
         }}
-        PaperProps={{
-          sx: { width: 300, p: 2, borderRadius: 3, boxShadow: 6 }
-        }}
+        {...({
+          PaperProps: {
+            sx: { width: 300, p: 2, borderRadius: 3, boxShadow: 6 }
+          }
+        } as any)}
       >
         {selectedEvent && (
           <Stack spacing={1.5}>
