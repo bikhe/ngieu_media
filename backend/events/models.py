@@ -65,6 +65,11 @@ class Equipment(models.Model):
         if exclude_event_id:
             events_qs = events_qs.exclude(id=exclude_event_id)
             
+        # Exclude events that already have active loans for this equipment to avoid double-counting
+        loaned_event_ids = [eid for eid in loans_qs.values_list('event_id', flat=True) if eid is not None]
+        if loaned_event_ids:
+            events_qs = events_qs.exclude(id__in=loaned_event_ids)
+            
         intervals = []
         
         for loan in loans_qs:

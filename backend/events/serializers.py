@@ -119,8 +119,10 @@ class EquipmentLoanSerializer(serializers.ModelSerializer):
         quantity = attrs.get('quantity', 1)
         
         if equipment:
+            exclude_event_id = event.id if event else None
             avail = equipment.get_available_quantity_at(
                 loan_start, loan_end,
+                exclude_event_id=exclude_event_id,
                 exclude_loan_id=self.instance.id if self.instance else None
             )
             if avail < quantity:
