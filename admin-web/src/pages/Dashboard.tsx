@@ -1,13 +1,14 @@
 import React, { useEffect, useState, useContext, useCallback } from 'react';
-import { Box, Container, Typography, Card, Button, AppBar, Toolbar, Avatar, IconButton, Chip, Tabs, Tab, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Drawer, List, ListItem, ListItemText, Stack, Paper, MenuItem, Select, FormControl, InputLabel, OutlinedInput, Divider, Pagination } from '@mui/material';
+import { Box, Container, Typography, Card, Button, AppBar, Toolbar, Avatar, IconButton, Chip, Tabs, Tab, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Drawer, List, ListItem, ListItemText, Stack, Paper, MenuItem, Select, FormControl, InputLabel, OutlinedInput, Divider, Pagination, ToggleButton, ToggleButtonGroup } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { format, parseISO } from 'date-fns';
 import toast, { Toaster } from 'react-hot-toast';
-import { Brightness4 as Brightness4Icon, Brightness7 as Brightness7Icon, Edit as EditIcon, Delete as DeleteIcon, Chat as ChatIcon, Send as SendIcon, Inventory2 as Inventory2Icon, MilitaryTech as MilitaryTechIcon, Link as LinkIcon, Timer as TimerIcon } from '@mui/icons-material';
+import { Brightness4 as Brightness4Icon, Brightness7 as Brightness7Icon, Edit as EditIcon, Delete as DeleteIcon, Chat as ChatIcon, Send as SendIcon, Inventory2 as Inventory2Icon, MilitaryTech as MilitaryTechIcon, Link as LinkIcon, Timer as TimerIcon, ViewList as ViewListIcon, CalendarMonth as CalendarIcon } from '@mui/icons-material';
 
 import api from '../services/api';
 import { useUpdatesBroker } from '../services/useUpdatesBroker';
 import { ColorModeContext } from '../App';
+import { CalendarView } from '../components/CalendarView';
 
 const Dashboard = () => {
   const { mode, toggleColorMode, brandName } = useContext(ColorModeContext);
@@ -25,6 +26,7 @@ const Dashboard = () => {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const pageSize = 9;
+  const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
   
   const [modal, setModal] = useState({ open: false, id: null as any });
   
@@ -50,7 +52,7 @@ const Dashboard = () => {
 
   const loadData = useCallback(async () => {
     try {
-      const params: any = { page, page_size: pageSize };
+      const params: any = viewMode === 'calendar' ? {} : { page, page_size: pageSize };
       if (tab !== 'ALL') {
         params.status = tab;
       }
@@ -73,7 +75,7 @@ const Dashboard = () => {
       setProfileForm({ first_name: u.data.first_name || '', last_name: u.data.last_name || '', telegram_id: u.data.telegram_id || '' });
       if (u.data.role === 'MAIN_ADMIN') setInvites((await api.get('invites/')).data);
     } catch { navigate('/login'); } finally { setLoading(false); }
-  }, [navigate, page, tab]);
+  }, [navigate, page, tab, viewMode]);
 
   // Real-time updates broker integration
   useUpdatesBroker(['event', 'equipment', 'loan'], () => {
@@ -210,102 +212,159 @@ const Dashboard = () => {
       </Drawer>
 
       <Container maxWidth="lg" sx={{ mt: 5 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 4 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
           <Typography variant="h4" sx={{ fontWeight: 900 }}>Мероприятия</Typography>
-          {(isAdmin || user?.role === 'ORGANIZER') && (
-            <Button variant="contained" onClick={() => { 
-              setForm({title:'', date:'', time:'12:00', end_time:'14:00', deadline: '', location:'', content_type:'PHOTO', document_link:'', result_link: '', max_participants: 1, required_skill: 'ANY', equipment_ids: []}); 
-              setModal({open: true, id: null}); 
-            }}>Создать</Button>
+          <Stack direction="row" spacing={2} alignItems="center">
+            <ToggleButtonGroup
+              value={viewMode}
+              exclusive
+              onChange={(_, value) => { if (value) setViewMode(value); }}
+              size="small"
+              color="primary"
+            >
+              <ToggleButton value="list" title="Список">
+                <ViewListIcon fontSize="small" />
+              </ToggleButton>
+              <ToggleButton value="calendar" title="Календарь">
+                <CalendarIcon fontSize="small" />
+              </ToggleButton>
+            </ToggleButtonGroup>
 
-          )}
+            {(isAdmin || user?.role === 'ORGANIZER') && (
+              <Button variant="contained" onClick={() => { 
+                setForm({title:'', date:'', time:'12:00', end_time:'14:00', deadline: '', location:'', content_type:'PHOTO', document_link:'', result_link: '', max_participants: 1, required_skill: 'ANY', equipment_ids: []}); 
+                setModal({open: true, id: null}); 
+              }}>Создать</Button>
+            )}
+          </Stack>
         </Box>
 
         <Tabs value={tab} onChange={(_, v) => { setTab(v); setPage(1); }} sx={{ mb: 4 }} variant="scrollable">
           <Tab label="Все" value="ALL" /><Tab label="Новые" value="PENDING" /><Tab label="Открыты" value="OPEN" /><Tab label="В работе" value="IN_PROGRESS" /><Tab label="Готово" value="COMPLETED" />
         </Tabs>
 
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: 'repeat(3, 1fr)' }, gap: 3 }}>
-          {events.map(event => (
-            <Box key={event.id}>
-              <Card sx={{ height: '100%', p: 3, display: 'flex', flexDirection: 'column', borderTop: 6, borderColor: event.status === 'COMPLETED' ? 'success.main' : (event.status === 'OVERDUE' ? 'error.main' : 'primary.main') }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                  <Chip label={event.status} size="small" color={event.status === 'OVERDUE' ? 'error' : 'default'} />
-                  {(isAdmin || (user?.role === 'ORGANIZER' && event.responsible_person?.id === user?.id)) && (
-                    <Stack direction="row">
-                      <IconButton size="small" onClick={() => {
-                        setForm({...event, end_time: event.end_time || '', equipment_ids: event.booked_equipment?.map((eq:any) => eq.id) || []}); 
-                        setModal({open: true, id: event.id});
-                      }}><EditIcon/></IconButton>
+        {viewMode === 'calendar' ? (
+          <CalendarView
+            events={events}
+            user={user}
+            onAddEvent={(dateStr) => {
+              setForm({
+                title: '',
+                date: dateStr,
+                time: '12:00',
+                end_time: '14:00',
+                deadline: '',
+                location: '',
+                content_type: 'PHOTO',
+                document_link: '',
+                result_link: '',
+                max_participants: 1,
+                required_skill: 'ANY',
+                equipment_ids: []
+              });
+              setModal({ open: true, id: null });
+            }}
+            onEditEvent={(event) => {
+              setForm({
+                ...event,
+                end_time: event.end_time || '',
+                equipment_ids: event.booked_equipment?.map((eq: any) => eq.id) || []
+              });
+              setModal({ open: true, id: event.id });
+            }}
+            onDeleteEvent={(id) => handleAction(id, 'delete')}
+            onApproveEvent={(id) => handleAction(id, 'approve')}
+            onRejectEvent={(id) => handleAction(id, 'reject')}
+            onOpenChat={(id) => {
+              setChatModal({ open: true, eventId: id });
+              loadChat(id);
+            }}
+          />
+        ) : (
+          <>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: 'repeat(3, 1fr)' }, gap: 3 }}>
+              {events.map(event => (
+                <Box key={event.id}>
+                  <Card sx={{ height: '100%', p: 3, display: 'flex', flexDirection: 'column', borderTop: 6, borderColor: event.status === 'COMPLETED' ? 'success.main' : (event.status === 'OVERDUE' ? 'error.main' : 'primary.main') }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                      <Chip label={event.status} size="small" color={event.status === 'OVERDUE' ? 'error' : 'default'} />
+                      {(isAdmin || (user?.role === 'ORGANIZER' && event.responsible_person?.id === user?.id)) && (
+                        <Stack direction="row">
+                          <IconButton size="small" onClick={() => {
+                            setForm({...event, end_time: event.end_time || '', equipment_ids: event.booked_equipment?.map((eq:any) => eq.id) || []}); 
+                            setModal({open: true, id: event.id});
+                          }}><EditIcon/></IconButton>
 
-                      <IconButton size="small" color="error" onClick={() => handleAction(event.id, 'delete')}><DeleteIcon/></IconButton>
-                    </Stack>
-                  )}
-                </Box>
-                
-                <Typography variant="h6" sx={{ fontWeight: 900, mb: 0.5 }}>{event.title}</Typography>
-                <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', mb: 1, color: 'text.secondary' }}>
-                  <TimerIcon sx={{ fontSize: 14, mr: 0.5 }} /> {format(parseISO(event.date), 'dd.MM.yyyy')} в {event.time?.slice(0,5)}{event.end_time ? ` - ${event.end_time.slice(0,5)}` : ''}
-                </Typography>
-
-
-                <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
-                  <Chip icon={<MilitaryTechIcon />} label={event.required_skill} size="small" variant="outlined" color={event.required_skill !== 'ANY' ? 'secondary' : 'default'} />
-                  <Chip label={`👥 ${event.media_participants?.length || 0} / ${event.max_participants}`} size="small" variant="outlined" />
-                </Stack>
-
-                <Box sx={{ mb: 2 }}>
-                  {event.booked_equipment?.map((eq: any) => (
-                    <Chip key={eq.id} icon={<Inventory2Icon sx={{ fontSize: '12px !important' }}/>} label={eq.name} size="small" sx={{ mr: 0.5, mb: 0.5, fontSize: '10px' }} />
-                  ))}
-                </Box>
-                
-                <Box sx={{ mt: 'auto' }}>
-                  <Divider sx={{ mb: 1.5 }} />
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Typography variant="caption" color="text.disabled">Орг: {event.responsible_person?.first_name || event.responsible_person?.username}</Typography>
-                    <Stack direction="row" spacing={1}>
-                      {event.result_link && (
-                        <IconButton
-                          size="small"
-                          onClick={() => {
-                            event.result_link.trim().split(/\s+/).forEach((link: string) => {
-                              if (link) {
-                                const target = /^https?:\/\//i.test(link) ? link : `https://${link}`;
-                                window.open(target, '_blank');
-                              }
-                            });
-                          }}
-                          color="success"
-                        >
-                          <LinkIcon />
-                        </IconButton>
+                          <IconButton size="small" color="error" onClick={() => handleAction(event.id, 'delete')}><DeleteIcon/></IconButton>
+                        </Stack>
                       )}
-                      <IconButton size="small" onClick={() => {setChatModal({open: true, eventId: event.id}); loadChat(event.id);}}><ChatIcon/></IconButton>
-                    </Stack>
-                  </Box>
+                    </Box>
+                    
+                    <Typography variant="h6" sx={{ fontWeight: 900, mb: 0.5 }}>{event.title}</Typography>
+                    <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', mb: 1, color: 'text.secondary' }}>
+                      <TimerIcon sx={{ fontSize: 14, mr: 0.5 }} /> {format(parseISO(event.date), 'dd.MM.yyyy')} в {event.time?.slice(0,5)}{event.end_time ? ` - ${event.end_time.slice(0,5)}` : ''}
+                    </Typography>
 
-                  {isAdmin && event.status === 'PENDING' && (
-                    <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
-                      <Button size="small" variant="contained" color="success" onClick={() => handleAction(event.id, 'approve')} fullWidth>Одобрить</Button>
-                      <Button size="small" variant="contained" color="error" onClick={() => handleAction(event.id, 'reject')} fullWidth>Отказ</Button>
+
+                    <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
+                      <Chip icon={<MilitaryTechIcon />} label={event.required_skill} size="small" variant="outlined" color={event.required_skill !== 'ANY' ? 'secondary' : 'default'} />
+                      <Chip label={`👥 ${event.media_participants?.length || 0} / ${event.max_participants}`} size="small" variant="outlined" />
                     </Stack>
-                  )}
+
+                    <Box sx={{ mb: 2 }}>
+                      {event.booked_equipment?.map((eq: any) => (
+                        <Chip key={eq.id} icon={<Inventory2Icon sx={{ fontSize: '12px !important' }}/>} label={eq.name} size="small" sx={{ mr: 0.5, mb: 0.5, fontSize: '10px' }} />
+                      ))}
+                    </Box>
+                    
+                    <Box sx={{ mt: 'auto' }}>
+                      <Divider sx={{ mb: 1.5 }} />
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Typography variant="caption" color="text.disabled">Орг: {event.responsible_person?.first_name || event.responsible_person?.username}</Typography>
+                        <Stack direction="row" spacing={1}>
+                          {event.result_link && (
+                            <IconButton
+                              size="small"
+                              onClick={() => {
+                                event.result_link.trim().split(/\s+/).forEach((link: string) => {
+                                  if (link) {
+                                    const target = /^https?:\/\//i.test(link) ? link : `https://${link}`;
+                                    window.open(target, '_blank');
+                                  }
+                                });
+                              }}
+                              color="success"
+                            >
+                              <LinkIcon />
+                            </IconButton>
+                          )}
+                          <IconButton size="small" onClick={() => {setChatModal({open: true, eventId: event.id}); loadChat(event.id);}}><ChatIcon/></IconButton>
+                        </Stack>
+                      </Box>
+
+                      {isAdmin && event.status === 'PENDING' && (
+                        <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
+                          <Button size="small" variant="contained" color="success" onClick={() => handleAction(event.id, 'approve')} fullWidth>Одобрить</Button>
+                          <Button size="small" variant="contained" color="error" onClick={() => handleAction(event.id, 'reject')} fullWidth>Отказ</Button>
+                        </Stack>
+                      )}
+                    </Box>
+                  </Card>
                 </Box>
-              </Card>
+              ))}
             </Box>
-          ))}
-        </Box>
-        {totalPages > 1 && (
-          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
-            <Pagination 
-              count={totalPages} 
-              page={page} 
-              onChange={(_, p) => setPage(p)} 
-              color="primary" 
-              size="large"
-            />
-          </Box>
+            {totalPages > 1 && (
+              <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
+                <Pagination 
+                  count={totalPages} 
+                  page={page} 
+                  onChange={(_, p) => setPage(p)} 
+                  color="primary" 
+                  size="large"
+                />
+              </Box>
+            )}
+          </>
         )}
       </Container>
 

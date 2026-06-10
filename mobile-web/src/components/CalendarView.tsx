@@ -1,0 +1,250 @@
+import React, { useState } from 'react';
+import { 
+  Box, 
+  Paper, 
+  IconButton, 
+  Typography, 
+  useTheme 
+} from '@mui/material';
+import { 
+  ChevronLeft as ChevronLeftIcon, 
+  ChevronRight as ChevronRightIcon 
+} from '@mui/icons-material';
+
+const MONTH_NAMES = [
+  'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+  'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'
+];
+const WEEK_DAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+
+interface CalendarViewProps {
+  events: any[];
+  selectedDate: Date;
+  onSelectDate: (date: Date) => void;
+}
+
+export const CalendarView: React.FC<CalendarViewProps> = ({
+  events,
+  selectedDate,
+  onSelectDate
+}) => {
+  const theme = useTheme();
+  const [currentDate, setCurrentDate] = useState(new Date(selectedDate));
+
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth();
+
+  const handlePrevMonth = () => {
+    setCurrentDate(new Date(year, month - 1, 1));
+  };
+
+  const handleNextMonth = () => {
+    setCurrentDate(new Date(year, month + 1, 1));
+  };
+
+  // Generate days in month grid
+  const firstDay = new Date(year, month, 1);
+  let startDayOfWeek = firstDay.getDay(); // 0 is Sunday
+  startDayOfWeek = startDayOfWeek === 0 ? 6 : startDayOfWeek - 1; // Align to Mon=0
+
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const prevMonthDays = new Date(year, month, 0).getDate();
+
+  const dayCells: { date: Date; isCurrentMonth: boolean }[] = [];
+
+  // Prev month padding
+  for (let i = startDayOfWeek - 1; i >= 0; i--) {
+    dayCells.push({
+      date: new Date(year, month - 1, prevMonthDays - i),
+      isCurrentMonth: false
+    });
+  }
+
+  // Current month
+  for (let i = 1; i <= daysInMonth; i++) {
+    dayCells.push({
+      date: new Date(year, month, i),
+      isCurrentMonth: true
+    });
+  }
+
+  // Next month padding (make it 42 cells total)
+  const remainingCells = 42 - dayCells.length;
+  for (let i = 1; i <= remainingCells; i++) {
+    dayCells.push({
+      date: new Date(year, month + 1, i),
+      isCurrentMonth: false
+    });
+  }
+
+  const formatDateKey = (date: Date) => {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+
+  const isSameDay = (date1: Date, date2: Date) => {
+    return date1.getDate() === date2.getDate() &&
+      date1.getMonth() === date2.getMonth() &&
+      date1.getFullYear() === date2.getFullYear();
+  };
+
+  const isToday = (date: Date) => {
+    const today = new Date();
+    return isSameDay(date, today);
+  };
+
+  const getEventDotColor = (status: string) => {
+    switch (status) {
+      case 'PENDING': return '#f59e0b'; // yellow
+      case 'OPEN': return '#3b82f6'; // blue
+      case 'IN_PROGRESS': return '#a855f7'; // purple
+      case 'COMPLETED': return '#10b981'; // green
+      case 'REJECTED': return '#ef4444'; // red
+      case 'OVERDUE': return '#b91c1c'; // dark red
+      default: return '#94a3b8'; // gray
+    }
+  };
+
+  return (
+    <Paper 
+      elevation={0}
+      sx={{ 
+        p: 2, 
+        borderRadius: 4, 
+        bgcolor: 'background.paper',
+        border: '1px solid rgba(255, 255, 255, 0.05)',
+        mb: 3
+      }}
+    >
+      {/* Calendar Header */}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>
+          {MONTH_NAMES[month]} {year}
+        </Typography>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <IconButton size="small" onClick={handlePrevMonth}>
+            <ChevronLeftIcon />
+          </IconButton>
+          <IconButton size="small" onClick={handleNextMonth}>
+            <ChevronRightIcon />
+          </IconButton>
+        </Box>
+      </Box>
+
+      {/* Weekday Labels */}
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, mb: 1, textAlign: 'center' }}>
+        {WEEK_DAYS.map((day, idx) => (
+          <Typography 
+            key={day} 
+            variant="caption" 
+            sx={{ 
+              fontWeight: 'bold', 
+              color: idx >= 5 ? 'error.main' : 'text.secondary',
+              fontSize: '10px'
+            }}
+          >
+            {day}
+          </Typography>
+        ))}
+      </Box>
+
+      {/* Days Grid */}
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '6px 4px' }}>
+        {dayCells.map((cell, idx) => {
+          const dateKey = formatDateKey(cell.date);
+          const dayEvents = events.filter(e => e.date === dateKey);
+          const isSelected = isSameDay(cell.date, selectedDate);
+          const currentIsToday = isToday(cell.date);
+
+          return (
+            <Box
+              key={idx}
+              onClick={() => {
+                onSelectDate(cell.date);
+                if (cell.date.getMonth() !== month) {
+                  setCurrentDate(cell.date);
+                }
+              }}
+              sx={{
+                aspectRatio: '1/1',
+                borderRadius: '50%',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                alignItems: 'center',
+                position: 'relative',
+                cursor: 'pointer',
+                bgcolor: isSelected 
+                  ? 'primary.main' 
+                  : (currentIsToday 
+                    ? 'action.hover' 
+                    : 'transparent'),
+                color: isSelected
+                  ? 'primary.contrastText'
+                  : (cell.isCurrentMonth 
+                    ? 'text.primary' 
+                    : 'text.secondary'),
+                opacity: cell.isCurrentMonth ? 1 : 0.4,
+                border: currentIsToday && !isSelected ? `1px solid ${theme.palette.primary.main}` : 'none',
+                transition: 'all 0.2s',
+                '&:active': {
+                  transform: 'scale(0.9)',
+                  bgcolor: isSelected ? 'primary.main' : 'action.selected'
+                }
+              }}
+            >
+              <Typography 
+                variant="body2" 
+                sx={{ 
+                  fontWeight: isSelected || currentIsToday ? 'bold' : 'medium',
+                  fontSize: '13px',
+                  lineHeight: 1
+                }}
+              >
+                {cell.date.getDate()}
+              </Typography>
+
+              {/* Event indicator dots */}
+              {dayEvents.length > 0 && (
+                <Box 
+                  sx={{ 
+                    display: 'flex', 
+                    gap: '2px', 
+                    position: 'absolute', 
+                    bottom: '4px',
+                    justifyContent: 'center',
+                    width: '100%'
+                  }}
+                >
+                  {dayEvents.slice(0, 3).map((evt, eIdx) => (
+                    <Box
+                      key={evt.id}
+                      sx={{
+                        width: '4px',
+                        height: '4px',
+                        borderRadius: '50%',
+                        bgcolor: isSelected ? 'primary.contrastText' : getEventDotColor(evt.status)
+                      }}
+                    />
+                  ))}
+                  {dayEvents.length > 3 && (
+                    <Box
+                      sx={{
+                        width: '4px',
+                        height: '4px',
+                        borderRadius: '50%',
+                        bgcolor: isSelected ? 'primary.contrastText' : 'text.secondary'
+                      }}
+                    />
+                  )}
+                </Box>
+              )}
+            </Box>
+          );
+        })}
+      </Box>
+    </Paper>
+  );
+};
