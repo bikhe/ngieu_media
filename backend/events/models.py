@@ -235,12 +235,17 @@ def log_save(sender, instance, created, **kwargs):
         extra_data['role'] = instance.role
     
     # Auto-cleanup old logs to prevent DB bloat (keep last 1000 logs)
-    try:
-        if UpdateLog.objects.count() > 1000:
-            old_ids = list(UpdateLog.objects.order_by('-id').values_list('id', flat=True)[1000:])
-            UpdateLog.objects.filter(id__in=old_ids).delete()
-    except Exception:
-        pass
+    # Optimized: only check probabilistically (5% chance) to avoid performance hit on every save
+    import random
+    if random.randint(1, 20) == 1:
+        try:
+            from django.db import connection
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM events_updatelog WHERE id < (SELECT id FROM events_updatelog ORDER BY id DESC OFFSET 1000 LIMIT 1)"
+                )
+        except Exception:
+            pass
 
     UpdateLog.objects.create(
         entity_type=entity_type,

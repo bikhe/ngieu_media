@@ -199,7 +199,9 @@ class EventViewSet(viewsets.ModelViewSet):
         user = self.request.user
         qs = Event.objects.all()
         if ENABLE_STRICT_DEADLINES:
-            qs.filter(status='IN_PROGRESS', deadline__lt=timezone.now()).update(status='OVERDUE')
+            overdue_qs = qs.filter(status='IN_PROGRESS', deadline__lt=timezone.now())
+            if overdue_qs.exists():
+                overdue_qs.update(status='OVERDUE')
         if user.role == 'MAIN_ADMIN': return qs
         elif user.role == 'MEDIA': return qs.exclude(status__in=['PENDING', 'REJECTED'])
         return qs.filter(responsible_person=user)
@@ -422,6 +424,8 @@ class EventViewSet(viewsets.ModelViewSet):
                     start_dt = datetime.combine(event.date, event.time or time(0, 0))
                     if event.end_time:
                         end_dt = datetime.combine(event.date, event.end_time)
+                        if event.end_time < (event.time or time(0, 0)):
+                            end_dt += timedelta(days=1)
                     else:
                         end_dt = start_dt + timedelta(hours=2)
 
