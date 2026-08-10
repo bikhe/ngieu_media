@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   db:
-    image: postgres:15-alpine
+    image: postgis/postgis:15-3.3-alpine
     restart: always
     environment:
       POSTGRES_DB: ${DB_NAME:-events_db}
@@ -13,16 +13,23 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  redis:
+    image: redis:7-alpine
+    restart: always
+    ports:
+      - "6379:6379"
+
   backend:
     build:
-      context: ./backend
+      context: ./backend/api
     restart: always
     ports:
       - "8000:8000"
     depends_on:
       - db
+      - redis
     env_file:
-      - ./backend/.env
+      - ./backend/api/.env
     # We use runserver for local test runs so that Django serves static admin files
     # automatically, and prints debug logs.
     command: >
@@ -31,36 +38,79 @@ services:
 
   bot:
     build:
-      context: ./backend
+      context: ./backend/api
     restart: always
     depends_on:
       - db
       - backend
     env_file:
-      - ./backend/.env
+      - ./backend/api/.env
     command: python manage.py run_bot
 
-  admin-web:
+  frontend:
     build:
-      context: ./admin-web
-    restart: always
-    ports:
-      - "3000:3000"
-    depends_on:
-      - backend
-    env_file:
-      - ./admin-web/.env
-
-  mobile-web:
-    build:
-      context: ./mobile-web
+      context: ./frontend
     restart: always
     ports:
       - "5173:5173"
     depends_on:
       - backend
     env_file:
-      - ./mobile-web/.env
+      - ./frontend/.env
+
+  update-broker:
+    build:
+      context: ./backend/update-broker
+    restart: always
+    ports:
+      - "8001:8001"
+    depends_on:
+      - redis
+      - backend
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.12
+    restart: always
+    environment:
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-dev_master_key}
+      - MEILI_NO_ANALYTICS=true
+    ports:
+      - "7700:7700"
+    volumes:
+      - meili_data:/meili_data
+
+  celery_worker:
+    build:
+      context: ./backend/api
+    restart: always
+    depends_on:
+      - db
+      - redis
+    env_file:
+      - ./backend/api/.env
+    command: celery -A core worker -l info
+
+  prometheus:
+    image: prom/prometheus:latest
+    restart: always
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:latest
+    restart: always
+    depends_on:
+      - prometheus
+    volumes:
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
 
 volumes:
   postgres_data:
+  meili_data:
+  prometheus_data:
+  grafana_data:

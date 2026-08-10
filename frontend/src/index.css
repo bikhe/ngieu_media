@@ -1,0 +1,151 @@
+:root {
+  font-family: 'Inter', 'Roboto', system-ui, -apple-system, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: light dark;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  min-width: 320px;
+  min-height: 100dvh;
+  background-color: #0f172a;
+  color: #f8fafc;
+  overflow-x: hidden;
+  /* Prevent default browser behaviors for a more native mobile app feel */
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+
+#root {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background-color: #0f172a;
+}
+
+/* Smooth fade-in animation for card lists and page switching */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.25s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* Pulse animation for loading placeholders */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Hide scrollbars but keep scrolling functionality */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Kinetics Spring Physics Motions */
+.spring-card {
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.spring-card:active {
+  transform: scale(0.96) translateY(2px);
+}
+
+.spring-toast {
+  animation: toastGlide 0.55s cubic-bezier(0.18, 1.25, 0.4, 1) forwards;
+}
+
+@keyframes toastGlide {
+  0% {
+    transform: translate(-50%, 140%) scale(0.9);
+    opacity: 0;
+  }
+  100% {
+    transform: translate(-50%, 0) scale(1);
+    opacity: 1;
+  }
+}
+
+.spring-pill {
+  transition: transform 0.4s cubic-bezier(0.65, 0, 0.35, 1), width 0.4s cubic-bezier(0.65, 0, 0.35, 1), left 0.4s cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+.spring-accordion-body {
+  overflow: hidden;
+  transition: max-height 0.45s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.spring-chevron {
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Soft UI (Neumorphism + Glassmorphism) Utilities */
+:root {
+  /* Default fallbacks, overridden via JS */
+  --soft-bg: #F8F9FA;
+  --soft-shadow-light: #ffffff;
+  --soft-shadow-dark: #d1d9e6;
+  --soft-inset-light: #ffffff;
+  --soft-inset-dark: #d1d9e6;
+  --soft-border: rgba(255, 255, 255, 0.5);
+  --soft-text: #1C1B1F;
+}
+
+.soft-card {
+  background: var(--soft-bg) !important;
+  box-shadow: 8px 8px 16px var(--soft-shadow-dark), -8px -8px 16px var(--soft-shadow-light) !important;
+  border: 1px solid var(--soft-border) !important;
+  backdrop-filter: blur(12px) !important;
+  color: var(--soft-text) !important;
+}
+
+.soft-input {
+  background: var(--soft-bg) !important;
+  box-shadow: inset 4px 4px 8px var(--soft-inset-dark), inset -4px -4px 8px var(--soft-inset-light) !important;
+  border: none !important;
+  color: var(--soft-text) !important;
+}
+
+.soft-button {
+  background: var(--soft-bg) !important;
+  box-shadow: 6px 6px 12px var(--soft-shadow-dark), -6px -6px 12px var(--soft-shadow-light) !important;
+  border: 1px solid var(--soft-border) !important;
+  color: var(--soft-text) !important;
+  transition: all 0.2s ease !important;
+}
+
+.soft-button:active, .soft-button.active {
+  box-shadow: inset 4px 4px 8px var(--soft-inset-dark), inset -4px -4px 8px var(--soft-inset-light) !important;
+  transform: scale(0.98);
+}

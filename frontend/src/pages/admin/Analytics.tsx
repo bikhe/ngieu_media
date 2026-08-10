@@ -1,0 +1,833 @@
+import React, { useEffect, useState, useContext, useMemo } from 'react';
+import { Box, Container, Typography, Card, Button, AppBar, Toolbar, Avatar, IconButton, Chip, Paper, Stack, Grid, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TableSortLabel, TextField, MenuItem, Select, FormControl, InputLabel, CircularProgress, LinearProgress, Tooltip, Dialog, DialogTitle, DialogContent, DialogActions, Radio, RadioGroup, FormControlLabel, Checkbox, ListItemText, OutlinedInput } from '@mui/material';
+import { useNavigate } from 'react-router-dom';
+import { ArrowBack as ArrowBackIcon, Brightness4 as Brightness4Icon, Brightness7 as Brightness7Icon, ShowChart as ShowChartIcon, People as PeopleIcon, Inventory as InventoryIcon, AssignmentTurnedIn as AssignmentTurnedInIcon, QueryBuilder as QueryBuilderIcon, FileDownload as FileDownloadIcon } from '@mui/icons-material';
+import toast, { Toaster } from 'react-hot-toast';
+import api from '../../services/api';
+import { ThemeSettingsContext as ColorModeContext } from '../../theme/ThemeSettingsContext';
+
+type SortConfig = {
+  key: string;
+  direction: 'asc' | 'desc';
+};
+
+const Analytics = () => {
+  const { mode, toggleColorMode, brandName } = useContext(ColorModeContext);
+  const navigate = useNavigate();
+
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<any>(null);
+  const [days, setDays] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  
+  // Sorting state for media table
+  const [mediaSort, setMediaSort] = useState<SortConfig>({ key: 'completed_count', direction: 'desc' });
+
+  // Export wizard states
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState<'excel' | 'pdf'>('excel');
+  const [exportStartDate, setExportStartDate] = useState('');
+  const [exportEndDate, setExportEndDate] = useState('');
+  const [exportSelectedMediaIds, setExportSelectedMediaIds] = useState<number[]>([]);
+
+  const handleExportSubmit = () => {
+    if (exportFormat === 'excel') {
+      let url = `events/export_csv/?`;
+      if (exportStartDate) url += `start_date=${exportStartDate}&`;
+      if (exportEndDate) url += `end_date=${exportEndDate}&`;
+      if (exportSelectedMediaIds.length > 0) url += `media_ids=${exportSelectedMediaIds.join(',')}&`;
+      
+      api.get(url, { responseType: 'blob' })
+        .then((response) => {
+          const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8;' });
+          const downloadUrl = window.URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = downloadUrl;
+          link.setAttribute('download', `report_${exportStartDate || 'all'}_to_${exportEndDate || 'all'}.csv`);
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          toast.success("Отчет успешно скачан");
+          setExportModalOpen(false);
+        })
+        .catch(() => {
+          toast.error("Не удалось скачать отчет");
+        });
+    } else {
+      setExportModalOpen(false);
+      setTimeout(() => {
+        window.print();
+      }, 300);
+    }
+  };
+
+  const fetchData = async (filterDays: string) => {
+    setLoading(true);
+    try {
+      const res = await api.get(`events/analytics/?days=${filterDays}`);
+      setData(res.data);
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || "Ошибка загрузки аналитики");
+      // If unauthorized or not admin, redirect
+      if (error.response?.status === 403 || error.response?.status === 401) {
+        navigate('/');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData(days);
+  }, [days]);
+
+  // Handle media table sorting
+  const handleRequestSort = (property: string) => {
+    const isAsc = mediaSort.key === property && mediaSort.direction === 'asc';
+    setMediaSort({ key: property, direction: isAsc ? 'desc' : 'asc' });
+  };
+
+  const sortedMediaStats = useMemo(() => {
+    if (!data?.media_stats) return [];
+    
+    // Filter by search query
+    const filtered = data.media_stats.filter((m: any) => {
+      const fullName = `${m.first_name || ''} ${m.last_name || ''}`.toLowerCase();
+      return m.username.toLowerCase().includes(searchQuery.toLowerCase()) || 
+             fullName.includes(searchQuery.toLowerCase());
+    });
+
+    return [...filtered].sort((a: any, b: any) => {
+      let valA = a[mediaSort.key];
+      let valB = b[mediaSort.key];
+
+      if (typeof valA === 'string') {
+        return mediaSort.direction === 'asc' 
+          ? valA.localeCompare(valB)
+          : valB.localeCompare(valA);
+      } else {
+        return mediaSort.direction === 'asc'
+          ? (valA > valB ? 1 : -1)
+          : (valB > valA ? 1 : -1);
+      }
+    });
+  }, [data?.media_stats, mediaSort, searchQuery]);
+
+  if (loading && !data) {
+    return (
+      <Box sx={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  const { summary, status_distribution, content_type_distribution, skill_level_distribution, monthly_trend, equipment_utilization, organizer_stats } = data || {};
+
+  // Status mapping to Russian labels and MUI colors
+  const statusMeta: Record<string, { label: string; color: string; hex: string }> = {
+    COMPLETED: { label: 'Выполнено', color: 'success', hex: '#4caf50' },
+    IN_PROGRESS: { label: 'В работе', color: 'primary', hex: '#2196f3' },
+    OPEN: { label: 'Открыто', color: 'info', hex: '#00bcd4' },
+    PENDING: { label: 'Ожидает одобрения', color: 'warning', hex: '#ff9800' },
+    OVERDUE: { label: 'Просрочено', color: 'error', hex: '#f44336' },
+    REJECTED: { label: 'Отклонено', color: 'secondary', hex: '#757575' }
+  };
+
+  // Content type mapping to Russian
+  const contentTypeLabels: Record<string, string> = {
+    PHOTO: 'Фотосъемка',
+    VIDEO: 'Видеосъемка',
+    ALL: 'Фото + Видео'
+  };
+
+  // Skill level mapping
+  const skillLabels: Record<string, string> = {
+    ANY: 'Любой',
+    PRO: 'Профи',
+    VIDEO: 'Видео',
+    DRONE: 'Дрон'
+  };
+
+  // Calculation of helper metrics
+  const successRate = summary?.total_events > 0 
+    ? Math.round((summary.completed_events / summary.total_events) * 100) 
+    : 0;
+
+  // Custom Line Area SVG Chart details
+  const renderTrendChart = () => {
+    if (!monthly_trend || monthly_trend.length === 0) {
+      return (
+        <Box sx={{ display: 'flex', height: 200, alignItems: 'center', justifyContent: 'center' }}>
+          <Typography variant="body2" color="text.secondary">Нет данных для графика трендов</Typography>
+        </Box>
+      );
+    }
+
+    const paddingX = 50;
+    const paddingY = 30;
+    const width = 600;
+    const height = 240;
+    const chartWidth = width - paddingX * 2;
+    const chartHeight = height - paddingY * 2;
+
+    // Find max value for scaling
+    const maxVal = Math.max(...monthly_trend.map((m: any) => Math.max(m.total, m.completed, m.overdue)), 5);
+    const stepsY = 4;
+    const pointsCount = monthly_trend.length;
+
+    // Get point coordinates
+    const getCoords = (index: number, val: number) => {
+      const x = paddingX + (index / (pointsCount - 1 || 1)) * chartWidth;
+      const y = paddingY + chartHeight - (val / maxVal) * chartHeight;
+      return { x, y };
+    };
+
+    // Build SVG paths
+    const generatePath = (key: 'total' | 'completed' | 'overdue', isArea = false) => {
+      let path = '';
+      monthly_trend.forEach((m: any, idx: number) => {
+        const { x, y } = getCoords(idx, m[key]);
+        if (idx === 0) {
+          path += `M ${x} ${y}`;
+        } else {
+          path += ` L ${x} ${y}`;
+        }
+      });
+
+      if (isArea && path) {
+        const firstPoint = getCoords(0, 0);
+        const lastPoint = getCoords(pointsCount - 1, 0);
+        path += ` L ${lastPoint.x} ${lastPoint.y} L ${firstPoint.x} ${firstPoint.y} Z`;
+      }
+      return path;
+    };
+
+    return (
+      <Box sx={{ position: 'relative', width: '100%', overflowX: 'auto' }}>
+        <svg viewBox={`0 0 ${width} ${height}`} width="100%" height={240}>
+          <defs>
+            <linearGradient id="totalGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#9c27b0" stopOpacity="0.4" />
+              <stop offset="100%" stopColor="#9c27b0" stopOpacity="0.0" />
+            </linearGradient>
+            <linearGradient id="completedGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#4caf50" stopOpacity="0.4" />
+              <stop offset="100%" stopColor="#4caf50" stopOpacity="0.0" />
+            </linearGradient>
+            <linearGradient id="overdueGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#f44336" stopOpacity="0.4" />
+              <stop offset="100%" stopColor="#f44336" stopOpacity="0.0" />
+            </linearGradient>
+          </defs>
+
+          {/* Grid lines */}
+          {Array.from({ length: stepsY + 1 }).map((_, i) => {
+            const y = paddingY + (i / stepsY) * chartHeight;
+            const val = Math.round(maxVal - (i / stepsY) * maxVal);
+            return (
+              <g key={i}>
+                <line x1={paddingX} y1={y} x2={width - paddingX} y2={y} stroke={mode === 'dark' ? '#333' : '#e0e0e0'} strokeDasharray="3,3" />
+                <text x={paddingX - 10} y={y + 4} textAnchor="end" fontSize="10" fill={mode === 'dark' ? '#aaa' : '#666'}>{val}</text>
+              </g>
+            );
+          })}
+
+          {/* X axis labels */}
+          {monthly_trend.map((m: any, idx: number) => {
+            const { x } = getCoords(idx, 0);
+            const labelParts = m.month.split('-');
+            const displayLabel = labelParts.length === 2 ? `${labelParts[1]}.${labelParts[0].slice(2)}` : m.month;
+            return (
+              <text key={idx} x={x} y={height - 10} textAnchor="middle" fontSize="10" fill={mode === 'dark' ? '#aaa' : '#666'}>
+                {displayLabel}
+              </text>
+            );
+          })}
+
+          {/* Area under curves */}
+          <path d={generatePath('total', true)} fill="url(#totalGrad)" />
+          <path d={generatePath('completed', true)} fill="url(#completedGrad)" />
+          <path d={generatePath('overdue', true)} fill="url(#overdueGrad)" />
+
+          {/* Line paths */}
+          <path d={generatePath('total')} fill="none" stroke="#9c27b0" strokeWidth="2.5" strokeLinecap="round" />
+          <path d={generatePath('completed')} fill="none" stroke="#4caf50" strokeWidth="2.5" strokeLinecap="round" />
+          <path d={generatePath('overdue')} fill="none" stroke="#f44336" strokeWidth="2.5" strokeLinecap="round" />
+
+          {/* Value circles & Tooltips */}
+          {monthly_trend.map((m: any, idx: number) => {
+            const tC = getCoords(idx, m.total);
+            const cC = getCoords(idx, m.completed);
+            const oC = getCoords(idx, m.overdue);
+
+            return (
+              <g key={idx}>
+                {/* Total circle */}
+                <circle cx={tC.x} cy={tC.y} r="4" fill="#9c27b0" stroke={mode === 'dark' ? '#121212' : '#fff'} strokeWidth="1" />
+                {/* Completed circle */}
+                <circle cx={cC.x} cy={cC.y} r="4" fill="#4caf50" stroke={mode === 'dark' ? '#121212' : '#fff'} strokeWidth="1" />
+                {/* Overdue circle */}
+                <circle cx={oC.x} cy={oC.y} r="4" fill="#f44336" stroke={mode === 'dark' ? '#121212' : '#fff'} strokeWidth="1" />
+              </g>
+            );
+          })}
+        </svg>
+
+        {/* Legend */}
+        <Stack direction="row" spacing={3} sx={{ mt: 1, justifyContent: 'center' }}>
+          <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+            <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: '#9c27b0' }} />
+            <Typography variant="caption">Всего съемок</Typography>
+          </Stack>
+          <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+            <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: '#4caf50' }} />
+            <Typography variant="caption">Выполнено</Typography>
+          </Stack>
+          <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+            <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: '#f44336' }} />
+            <Typography variant="caption">Просрочено</Typography>
+          </Stack>
+        </Stack>
+      </Box>
+    );
+  };
+
+  return (
+    <Box sx={{ minHeight: '100vh', bgcolor: 'background.default', pb: 5 }}>
+      <Toaster />
+      
+      <Typography variant="h4" sx={{ fontWeight: 900, mb: 4, mt: 2 }}>Аналитика</Typography>
+
+      <Container maxWidth="lg" sx={{ mt: 4 }}>
+        {/* Header and filters */}
+        <Box className="no-print" sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, justifyContent: 'space-between', alignItems: { xs: 'stretch', sm: 'center' }, gap: 2, mb: 4 }}>
+          <Box>
+            <Typography variant="h4" sx={{ fontWeight: 900 }}>Статистика и отчетность</Typography>
+            <Typography variant="subtitle2" color="text.secondary">Подробная аналитика эффективности отдела и сотрудников</Typography>
+          </Box>
+          
+          <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
+            <Button 
+              variant="contained" 
+              color="secondary" 
+              startIcon={<FileDownloadIcon />} 
+              onClick={() => setExportModalOpen(true)}
+            >
+              Экспорт отчетов
+            </Button>
+            <FormControl sx={{ minWidth: 200 }} size="small">
+              <InputLabel id="days-filter-label">Временной диапазон</InputLabel>
+              <Select
+                labelId="days-filter-label"
+                value={days}
+                label="Временной диапазон"
+                onChange={(e) => setDays(e.target.value)}
+              >
+                <MenuItem value="all">За всё время</MenuItem>
+                <MenuItem value="30">Последние 30 дней</MenuItem>
+                <MenuItem value="7">Последние 7 дней</MenuItem>
+              </Select>
+            </FormControl>
+          </Stack>
+        </Box>
+
+        {/* Top KPI row */}
+        <Grid container spacing={3} sx={{ mb: 4 }}>
+          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+            <Card sx={{ p: 3, height: '100%', display: 'flex', alignItems: 'center', borderTop: 4, borderColor: 'primary.main', boxShadow: '0 4px 20px 0 rgba(0,0,0,0.05)' }}>
+              <Avatar sx={{ bgcolor: 'primary.light', mr: 2 }}><ShowChartIcon /></Avatar>
+              <Box>
+                <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600 }}>Всего заявок</Typography>
+                <Typography variant="h4" sx={{ fontWeight: 900 }}>{summary?.total_events}</Typography>
+              </Box>
+            </Card>
+          </Grid>
+          
+          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+            <Card sx={{ p: 3, height: '100%', display: 'flex', alignItems: 'center', borderTop: 4, borderColor: 'success.main', boxShadow: '0 4px 20px 0 rgba(0,0,0,0.05)' }}>
+              <Avatar sx={{ bgcolor: 'success.light', mr: 2 }}><AssignmentTurnedInIcon /></Avatar>
+              <Box>
+                <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600 }}>Процент сдачи</Typography>
+                <Typography variant="h4" sx={{ fontWeight: 900 }}>{successRate}%</Typography>
+                <Typography variant="caption" color="text.secondary">Выполнено: {summary?.completed_events}</Typography>
+              </Box>
+            </Card>
+          </Grid>
+
+          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+            <Card sx={{ p: 3, height: '100%', display: 'flex', alignItems: 'center', borderTop: 4, borderColor: 'error.main', boxShadow: '0 4px 20px 0 rgba(0,0,0,0.05)' }}>
+              <Avatar sx={{ bgcolor: 'error.light', mr: 2 }}><QueryBuilderIcon /></Avatar>
+              <Box>
+                <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600 }}>Просрочено</Typography>
+                <Typography variant="h4" sx={{ fontWeight: 900, color: summary?.overdue_events > 0 ? 'error.main' : 'text.primary' }}>{summary?.overdue_events}</Typography>
+              </Box>
+            </Card>
+          </Grid>
+
+          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+            <Card sx={{ p: 3, height: '100%', display: 'flex', alignItems: 'center', borderTop: 4, borderColor: 'warning.main', boxShadow: '0 4px 20px 0 rgba(0,0,0,0.05)' }}>
+              <Avatar sx={{ bgcolor: 'warning.light', mr: 2 }}><PeopleIcon /></Avatar>
+              <Box>
+                <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600 }}>Активно сотрудников</Typography>
+                <Typography variant="h4" sx={{ fontWeight: 900 }}>{summary?.active_media}</Typography>
+                <Typography variant="caption" color="text.secondary">Сейчас на съемках</Typography>
+              </Box>
+            </Card>
+          </Grid>
+        </Grid>
+
+        {/* Charts & Distributions */}
+        <Grid container spacing={3} sx={{ mb: 4 }}>
+          {/* Monthly trend line chart */}
+          <Grid size={{ xs: 12, md: 7 }}>
+            <Card sx={{ p: 3, height: '100%', boxShadow: '0 4px 20px 0 rgba(0,0,0,0.05)' }}>
+              <Typography variant="h6" sx={{ fontWeight: 900, mb: 2 }}>Динамика съемок за последние 12 месяцев</Typography>
+              {renderTrendChart()}
+            </Card>
+          </Grid>
+
+          {/* Status Breakdown & Content Types */}
+          <Grid size={{ xs: 12, md: 5 }}>
+            <Card sx={{ p: 3, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', boxShadow: '0 4px 20px 0 rgba(0,0,0,0.05)' }}>
+              <Box sx={{ mb: 3 }}>
+                <Typography variant="h6" sx={{ fontWeight: 900, mb: 2 }}>Текущие статусы задач</Typography>
+                <Stack spacing={1.5}>
+                  {Object.entries(status_distribution || {}).map(([statusKey, count]) => {
+                    const meta = statusMeta[statusKey] || { label: statusKey, color: 'default', hex: '#ccc' };
+                    const pct = summary?.total_events > 0 ? Math.round(((count as number) / summary.total_events) * 100) : 0;
+                    return (
+                      <Box key={statusKey}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
+                          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                            <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: meta.hex }} />
+                            <Typography variant="body2" sx={{ fontWeight: 600 }}>{meta.label}</Typography>
+                          </Stack>
+                          <Typography variant="body2" color="text.secondary">{`${count} (${pct}%)`}</Typography>
+                        </Box>
+                        <LinearProgress variant="determinate" value={pct} color={meta.color as any} sx={{ height: 6, borderRadius: 3 }} />
+                      </Box>
+                    );
+                  })}
+                </Stack>
+              </Box>
+
+              <Box>
+                <Typography variant="h6" sx={{ fontWeight: 900, mb: 2 }}>Распределение по контенту</Typography>
+                <Stack spacing={1.5}>
+                  {Object.entries(content_type_distribution || {}).map(([ctKey, count]) => {
+                    const label = contentTypeLabels[ctKey] || ctKey;
+                    const pct = summary?.total_events > 0 ? Math.round(((count as number) / summary.total_events) * 100) : 0;
+                    return (
+                      <Box key={ctKey}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
+                          <Typography variant="body2" sx={{ fontWeight: 600 }}>{label}</Typography>
+                          <Typography variant="body2" color="text.secondary">{`${count} шт. (${pct}%)`}</Typography>
+                        </Box>
+                        <LinearProgress variant="determinate" value={pct} color="secondary" sx={{ height: 6, borderRadius: 3, bgcolor: mode === 'dark' ? '#333' : '#f0f0f0' }} />
+                      </Box>
+                    );
+                  })}
+                </Stack>
+              </Box>
+            </Card>
+          </Grid>
+        </Grid>
+
+        {/* Equipment & Skill Requirements */}
+        <Grid container spacing={3} sx={{ mb: 4 }}>
+          {/* Equipment Utilization list */}
+          <Grid size={{ xs: 12, md: 6 }}>
+            <Card sx={{ p: 3, height: '100%', boxShadow: '0 4px 20px 0 rgba(0,0,0,0.05)' }}>
+              <Typography variant="h6" sx={{ fontWeight: 900, mb: 1, display: 'flex', alignItems: 'center' }}>
+                <InventoryIcon sx={{ mr: 1, color: 'primary.main' }} /> Востребованность оборудования
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 3 }}>
+                Процент задействованности техники на съемках за выбранный период
+              </Typography>
+              
+              <Stack spacing={2} sx={{ maxHeight: 300, overflowY: 'auto', pr: 1 }}>
+                {equipment_utilization && equipment_utilization.length > 0 ? (
+                  equipment_utilization.map((eq: any) => (
+                    <Box key={eq.id}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>{eq.name}</Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {eq.bookings_count} броней ({eq.booking_rate}%)
+                        </Typography>
+                      </Box>
+                      <LinearProgress 
+                        variant="determinate" 
+                        value={Math.min(eq.booking_rate, 100)} 
+                        sx={{ 
+                          height: 8, 
+                          borderRadius: 4,
+                          '& .MuiLinearProgress-bar': {
+                            background: 'linear-gradient(90deg, #2196f3 0%, #00bcd4 100%)'
+                          }
+                        }} 
+                      />
+                    </Box>
+                  ))
+                ) : (
+                  <Typography variant="body2" color="text.secondary">Оборудование не забронировано</Typography>
+                )}
+              </Stack>
+            </Card>
+          </Grid>
+
+          {/* Skill levels requirements */}
+          <Grid size={{ xs: 12, md: 6 }}>
+            <Card sx={{ p: 3, height: '100%', boxShadow: '0 4px 20px 0 rgba(0,0,0,0.05)' }}>
+              <Typography variant="h6" sx={{ fontWeight: 900, mb: 1 }}>
+                Сложность съемок (Уровень навыка)
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 3 }}>
+                Требуемый скилл-уровень для выполнения поставленных задач
+              </Typography>
+
+              <Stack spacing={2} sx={{ mt: 2 }}>
+                {Object.entries(skill_level_distribution || {}).map(([skillKey, count]) => {
+                  const label = skillLabels[skillKey] || skillKey;
+                  const pct = summary?.total_events > 0 ? Math.round(((count as number) / summary.total_events) * 100) : 0;
+                  return (
+                    <Box key={skillKey}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>{label}</Typography>
+                        <Typography variant="body2" color="text.secondary">{`${count} задач (${pct}%)`}</Typography>
+                      </Box>
+                      <LinearProgress 
+                        variant="determinate" 
+                        value={pct} 
+                        color={skillKey === 'PRO' ? 'error' : (skillKey === 'VIDEO' ? 'primary' : (skillKey === 'DRONE' ? 'secondary' : 'inherit'))} 
+                        sx={{ height: 8, borderRadius: 4 }} 
+                      />
+                    </Box>
+                  );
+                })}
+              </Stack>
+            </Card>
+          </Grid>
+        </Grid>
+
+        {/* Media Performers Table */}
+        <Card sx={{ p: 3, mb: 4, boxShadow: '0 4px 20px 0 rgba(0,0,0,0.05)' }}>
+          <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, justifyContent: 'space-between', alignItems: { xs: 'stretch', sm: 'center' }, gap: 2, mb: 3 }}>
+            <Box>
+              <Typography variant="h6" sx={{ fontWeight: 900 }}>Эффективность исполнителей (СМИ)</Typography>
+              <Typography variant="caption" color="text.secondary">Индивидуальные показатели выполнения задач сотрудниками отдела</Typography>
+            </Box>
+            
+            <TextField
+              size="small"
+              placeholder="Поиск по имени/логину..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              sx={{ width: { xs: '100%', sm: 260 } }}
+            />
+          </Box>
+
+          <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
+            <Table>
+              <TableHead sx={{ bgcolor: mode === 'dark' ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)' }}>
+                <TableRow>
+                  <TableCell>
+                    <TableSortLabel
+                      active={mediaSort.key === 'username'}
+                      direction={mediaSort.key === 'username' ? mediaSort.direction : 'asc'}
+                      onClick={() => handleRequestSort('username')}
+                      sx={{ fontWeight: 'bold' }}
+                    >
+                      Имя пользователя
+                    </TableSortLabel>
+                  </TableCell>
+                  <TableCell align="center">
+                    <TableSortLabel
+                      active={mediaSort.key === 'skill_level'}
+                      direction={mediaSort.key === 'skill_level' ? mediaSort.direction : 'asc'}
+                      onClick={() => handleRequestSort('skill_level')}
+                      sx={{ fontWeight: 'bold' }}
+                    >
+                      Навык
+                    </TableSortLabel>
+                  </TableCell>
+                  <TableCell align="center">
+                    <TableSortLabel
+                      active={mediaSort.key === 'total_taken'}
+                      direction={mediaSort.key === 'total_taken' ? mediaSort.direction : 'asc'}
+                      onClick={() => handleRequestSort('total_taken')}
+                      sx={{ fontWeight: 'bold' }}
+                    >
+                      Всего задач
+                    </TableSortLabel>
+                  </TableCell>
+                  <TableCell align="center">
+                    <TableSortLabel
+                      active={mediaSort.key === 'completed_count'}
+                      direction={mediaSort.key === 'completed_count' ? mediaSort.direction : 'asc'}
+                      onClick={() => handleRequestSort('completed_count')}
+                      sx={{ fontWeight: 'bold' }}
+                    >
+                      Выполнено
+                    </TableSortLabel>
+                  </TableCell>
+                  <TableCell align="center">
+                    <TableSortLabel
+                      active={mediaSort.key === 'in_progress_count'}
+                      direction={mediaSort.key === 'in_progress_count' ? mediaSort.direction : 'asc'}
+                      onClick={() => handleRequestSort('in_progress_count')}
+                      sx={{ fontWeight: 'bold' }}
+                    >
+                      В работе
+                    </TableSortLabel>
+                  </TableCell>
+                  <TableCell align="center" sx={{ color: 'error.main' }}>
+                    <TableSortLabel
+                      active={mediaSort.key === 'overdue_count'}
+                      direction={mediaSort.key === 'overdue_count' ? mediaSort.direction : 'asc'}
+                      onClick={() => handleRequestSort('overdue_count')}
+                      sx={{ fontWeight: 'bold', color: 'error.main !important' }}
+                    >
+                      Просрочено
+                    </TableSortLabel>
+                  </TableCell>
+                  <TableCell align="center">
+                    <TableSortLabel
+                      active={mediaSort.key === 'success_rate'}
+                      direction={mediaSort.key === 'success_rate' ? mediaSort.direction : 'asc'}
+                      onClick={() => handleRequestSort('success_rate')}
+                      sx={{ fontWeight: 'bold' }}
+                    >
+                      Успешность сдачи
+                    </TableSortLabel>
+                  </TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {sortedMediaStats.length > 0 ? (
+                  sortedMediaStats.map((row: any) => {
+                    const fullName = `${row.first_name || ''} ${row.last_name || ''}`.trim() || '—';
+                    return (
+                      <TableRow key={row.id} hover>
+                        <TableCell>
+                          <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+                            <Avatar sx={{ width: 32, height: 32, fontSize: 14, bgcolor: 'primary.main' }}>
+                              {row.username[0].toUpperCase()}
+                            </Avatar>
+                            <Box>
+                              <Typography variant="body2" sx={{ fontWeight: 600 }}>{row.username}</Typography>
+                              <Typography variant="caption" color="text.secondary">{fullName}</Typography>
+                            </Box>
+                          </Stack>
+                        </TableCell>
+                        <TableCell align="center">
+                          <Chip 
+                            label={skillLabels[row.skill_level] || row.skill_level} 
+                            size="small" 
+                            variant="outlined"
+                            color={row.skill_level === 'PRO' ? 'error' : (row.skill_level === 'VIDEO' ? 'primary' : (row.skill_level === 'DRONE' ? 'secondary' : 'default'))}
+                          />
+                        </TableCell>
+                        <TableCell align="center" sx={{ fontWeight: 500 }}>{row.total_taken}</TableCell>
+                        <TableCell align="center" sx={{ color: 'success.main', fontWeight: 600 }}>{row.completed_count}</TableCell>
+                        <TableCell align="center" sx={{ color: 'primary.main', fontWeight: 500 }}>{row.in_progress_count}</TableCell>
+                        <TableCell align="center" sx={{ color: 'error.main', fontWeight: 600 }}>{row.overdue_count}</TableCell>
+                        <TableCell align="center">
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
+                            <Box sx={{ width: 48 }}>
+                              <LinearProgress 
+                                variant="determinate" 
+                                value={row.success_rate} 
+                                color={row.success_rate > 75 ? 'success' : (row.success_rate > 40 ? 'warning' : 'error')}
+                                sx={{ height: 6, borderRadius: 3 }}
+                              />
+                            </Box>
+                            <Typography variant="body2" sx={{ fontWeight: 600, width: 34 }}>{row.success_rate}%</Typography>
+                          </Box>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={7} align="center">
+                      <Typography variant="body2" color="text.secondary" sx={{ py: 3 }}>
+                        Исполнители не найдены
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Card>
+
+        {/* Organizer Activity Table */}
+        <Card sx={{ p: 3, boxShadow: '0 4px 20px 0 rgba(0,0,0,0.05)' }}>
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="h6" sx={{ fontWeight: 900 }}>Создатели заявок (Организаторы и Администрация)</Typography>
+            <Typography variant="caption" color="text.secondary">Активность организаторов по созданию съемочных заявок</Typography>
+          </Box>
+
+          <Grid container spacing={3}>
+            {organizer_stats && organizer_stats.length > 0 ? (
+              organizer_stats.map((org: any) => {
+                const fullName = `${org.first_name || ''} ${org.last_name || ''}`.trim() || '—';
+                const share = summary?.total_events > 0 ? Math.round((org.created_count / summary.total_events) * 100) : 0;
+                return (
+                  <Grid size={{ xs: 12, sm: 6, md: 4 }} key={org.id}>
+                    <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Box>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>{org.username}</Typography>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>{fullName}</Typography>
+                        <Chip label={org.role === 'MAIN_ADMIN' ? 'Администратор' : 'Организатор'} size="small" variant="outlined" sx={{ height: 20, fontSize: 10 }} />
+                      </Box>
+                      <Box sx={{ textAlign: 'right' }}>
+                        <Typography variant="h5" sx={{ fontWeight: 900, color: 'primary.main' }}>{org.created_count}</Typography>
+                        <Typography variant="caption" color="text.secondary">Доля: {share}%</Typography>
+                      </Box>
+                    </Paper>
+                  </Grid>
+                );
+              })
+            ) : (
+              <Grid size={{ xs: 12 }}>
+                <Typography variant="body2" color="text.secondary" align="center">Нет активных организаторов</Typography>
+              </Grid>
+            )}
+          </Grid>
+        </Card>
+      </Container>
+
+      {/* Стили для печати в PDF */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          body {
+            background: white !important;
+            color: black !important;
+          }
+          .no-print, 
+          header, 
+          nav, 
+          button, 
+          .MuiButton-root, 
+          .MuiFormControl-root, 
+          .MuiTextField-root,
+          .MuiSelect-root,
+          .MuiOutlinedInput-root {
+            display: none !important;
+          }
+          .MuiCard-root, .MuiPaper-root {
+            box-shadow: none !important;
+            border: 1px solid #ddd !important;
+            page-break-inside: avoid;
+            margin-bottom: 24px !important;
+            background: white !important;
+          }
+          .MuiContainer-root {
+            max-width: 100% !important;
+            padding: 0 !important;
+            margin: 0 !important;
+          }
+          svg {
+            max-width: 100% !important;
+            height: auto !important;
+          }
+        }
+      `}} />
+
+      {/* Мастер экспорта */}
+      <Dialog open={exportModalOpen} onClose={() => setExportModalOpen(false)} fullWidth maxWidth="sm" className="no-print">
+        <DialogTitle sx={{ fontWeight: 900 }}>Мастер экспорта отчетов</DialogTitle>
+        <DialogContent dividers>
+          <FormControl component="fieldset" sx={{ mb: 3 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>1. Выберите формат отчета</Typography>
+            <RadioGroup value={exportFormat} onChange={(e) => setExportFormat(e.target.value as any)}>
+              <FormControlLabel value="excel" control={<Radio />} label="Excel / CSV (Таблица всех записей)" />
+              <FormControlLabel value="pdf" control={<Radio />} label="PDF презентация (Печатная форма показателей)" />
+            </RadioGroup>
+          </FormControl>
+
+          {exportFormat === 'excel' ? (
+            <Stack spacing={3}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>2. Настройка фильтров таблицы</Typography>
+              
+              <Stack direction="row" spacing={2}>
+                <TextField
+                  fullWidth
+                  type="date"
+                  label="Начальная дата"
+                  slotProps={{ inputLabel: { shrink: true } }}
+                  value={exportStartDate}
+                  onChange={(e) => setExportStartDate(e.target.value)}
+                />
+                <TextField
+                  fullWidth
+                  type="date"
+                  label="Конечная дата"
+                  slotProps={{ inputLabel: { shrink: true } }}
+                  value={exportEndDate}
+                  onChange={(e) => setExportEndDate(e.target.value)}
+                />
+              </Stack>
+
+              <FormControl fullWidth>
+                <InputLabel id="export-media-label">Исполнители (СМИ)</InputLabel>
+                <Select
+                  labelId="export-media-label"
+                  multiple
+                  value={exportSelectedMediaIds}
+                  onChange={(e: any) => setExportSelectedMediaIds(e.target.value)}
+                  input={<OutlinedInput label="Исполнители (СМИ)" />}
+                  renderValue={(selected: any) => (
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                      {selected.map((value: any) => {
+                        const performer = data?.media_stats?.find((m: any) => m.id === value);
+                        return <Chip key={value} label={performer?.username || value} size="small" />;
+                      })}
+                    </Box>
+                  )}
+                >
+                  {data?.media_stats?.map((m: any) => (
+                    <MenuItem key={m.id} value={m.id}>
+                      <Checkbox checked={exportSelectedMediaIds.indexOf(m.id) > -1} />
+                      <ListItemText primary={m.username} secondary={`${m.first_name || ''} ${m.last_name || ''}`} />
+                    </MenuItem>
+                  ))}
+                </Select>
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
+                  Оставьте пустым, чтобы экспортировать данные по всем сотрудникам
+                </Typography>
+              </FormControl>
+            </Stack>
+          ) : (
+            <Box sx={{ p: 2, bgcolor: mode === 'dark' ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)', borderRadius: 2 }}>
+              <Typography variant="body2" sx={{ mb: 1.5, lineHeight: 1.6 }}>
+                PDF-отчет будет сгенерирован на основе текущего экрана аналитики. Все выбранные вами фильтры (например, диапазон 7 или 30 дней) и поисковые запросы в таблице сохранятся.
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                💡 Рекомендации при экспорте:
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                1. В окне печати выберите принтер: <strong>«Сохранить как PDF»</strong>.
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                2. В дополнительных настройках включите <strong>«Фоновые рисунки / Фоновые цвета»</strong> для корректного отображения шкал и цветных карточек.
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                3. Рекомендуется использовать <strong>Альбомную ориентацию</strong>.
+              </Typography>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setExportModalOpen(false)}>Отмена</Button>
+          <Button variant="contained" color="primary" onClick={handleExportSubmit}>
+            {exportFormat === 'excel' ? 'Скачать Excel / CSV' : 'Сформировать PDF'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
+  );
+};
+
+export default Analytics;

@@ -1,0 +1,88 @@
+import { useEffect, useRef } from 'react';
+import api from './api';
+
+export const useUpdatesBroker = (entityTypes: string[], onUpdate: (log: any) => void) => {
+  const lastIdRef = useRef<number>(0);
+  const sseRef = useRef<EventSource | null>(null);
+
+  // Keep latest values in refs so the effect never needs to re-run due to prop identity changes
+  const entityTypesRef = useRef(entityTypes);
+  entityTypesRef.current = entityTypes;
+  const onUpdateRef = useRef(onUpdate);
+  onUpdateRef.current = onUpdate;
+
+  useEffect(() => {
+    // Only one SSE connection per hook instance; skip if already open
+    if (sseRef.current) return;
+
+    let active = true;
+
+    const startBroker = async () => {
+      try {
+        // 1. Fetch current maximum update log ID from backend
+        const initRes = await api.get('updates/');
+        lastIdRef.current = initRes.data.last_id || 0;
+
+        if (!active) return;
+
+        // 2. Establish SSE connection
+        const token = localStorage.getItem('access');
+
+        // Construct the SSE URL. Vite development configuration might supply VITE_API_URL.
+        const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+
+        // Remove trailing slash
+        const apiBase = baseURL.endsWith('/') ? baseURL.slice(0, -1) : baseURL;
+        let sseUrl = `${apiBase}/updates/stream?since_id=${lastIdRef.current}${token ? `&token=${token}` : ''}`;
+
+        // In local development, the backend API is on 8000 but the broker is on 8001.
+        if (baseURL.includes('localhost:8000')) {
+          sseUrl = `http://localhost:8001/stream?since_id=${lastIdRef.current}${token ? `&token=${token}` : ''}`;
+        }
+
+        const sse = new EventSource(sseUrl);
+        sseRef.current = sse;
+
+        sse.onmessage = (event) => {
+          if (!active) return;
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'init') {
+              lastIdRef.current = data.last_id;
+            } else if (data.type === 'updates') {
+              data.logs.forEach((log: any) => {
+                if (log.id > lastIdRef.current) {
+                  lastIdRef.current = log.id;
+                }
+                if (entityTypesRef.current.includes(log.entity_type)) {
+                  onUpdateRef.current(log);
+                }
+              });
+            }
+          } catch (e) {
+            console.error('SSE parse error:', e);
+          }
+        };
+
+        // Native EventSource reconnects automatically on error — no manual retry needed.
+        sse.onerror = () => {
+          console.warn('SSE connection interrupted, browser will auto-reconnect.');
+        };
+
+      } catch (err) {
+        console.error('Failed to initialize updates broker:', err);
+      }
+    };
+
+    startBroker();
+
+    return () => {
+      active = false;
+      if (sseRef.current) {
+        sseRef.current.close();
+        sseRef.current = null;
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run only once per mount — entityTypes/onUpdate are read via refs
+};

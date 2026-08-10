@@ -1,0 +1,15 @@
+Django>=4.2
+djangorestframework
+djangorestframework-simplejwt
+django-cors-headers
+django-filter
+requests
+gunicorn
+psycopg2-binary
+aiogram
+python-dotenv
+redis
+openpyxl
+meilisearch
+celery
+django-prometheus

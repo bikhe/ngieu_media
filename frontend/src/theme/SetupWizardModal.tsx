@@ -1,0 +1,144 @@
+import React, { useContext } from 'react';
+import { 
+  Dialog, DialogTitle, DialogContent, DialogActions, 
+  Button, Typography, Slider, Box, Card, CardActionArea, 
+  Grid, useTheme 
+} from '@mui/material';
+import type { ThemePreset } from './ThemeSettingsContext';
+import { ThemeSettingsContext } from './ThemeSettingsContext';
+import SettingsSuggestIcon from '@mui/material/Icon';
+
+const PRESETS: { id: ThemePreset; label: string; bg: string; color: string }[] = [
+  { id: 'gost-light', label: 'ГОСТ Светлая', bg: '#F8F9FA', color: '#0056D2' },
+  { id: 'gost-dark', label: 'ГОСТ Темная', bg: '#121212', color: '#A8C7FA' },
+  { id: 'tg-light', label: 'TG Светлая', bg: '#F4F4F5', color: '#3390EC' },
+  { id: 'tg-dark', label: 'TG Темная', bg: '#18222D', color: '#3390EC' },
+  { id: 'custom', label: 'Свой цвет', bg: '#FFFFFF', color: '#cccccc' },
+];
+
+export const SetupWizardModal = () => {
+  const { 
+    hasCompletedSetup, completeSetup, 
+    fontSize, setFontSize, 
+    themePreset, setThemePreset,
+    customColor, setCustomColor
+  } = useContext(ThemeSettingsContext);
+  const muiTheme = useTheme();
+
+  if (hasCompletedSetup) return null;
+
+  const handleSliderChange = (event: Event, newValue: number | number[]) => {
+    setFontSize(newValue as number);
+  };
+
+  return (
+    <Dialog 
+      open={!hasCompletedSetup} 
+      maxWidth="sm" 
+      fullWidth 
+      sx={{
+        '& .MuiDialog-paper': {
+          borderRadius: '32px',
+          padding: '16px',
+          boxShadow: '0 24px 64px rgba(0,0,0,0.2)'
+        }
+      }}
+    >
+      <DialogTitle sx={{ textAlign: 'center', pb: 1 }}>
+        <Typography variant="h4" sx={{ fontWeight: 'bold' }}>Добро пожаловать</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+          Давайте настроим интерфейс для вашего удобства. Вы всегда сможете изменить это позже.
+        </Typography>
+      </DialogTitle>
+      
+      <DialogContent>
+        <Box sx={{ mt: 3, mb: 4 }}>
+          <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>Размер шрифта: {fontSize}px</Typography>
+          <Slider
+            value={fontSize}
+            min={12}
+            max={24}
+            step={2}
+            marks
+            onChange={handleSliderChange}
+            valueLabelDisplay="auto"
+            sx={{
+              color: muiTheme.palette.primary.main,
+              height: 8,
+              '& .MuiSlider-thumb': {
+                width: 24,
+                height: 24,
+              }
+            }}
+          />
+        </Box>
+
+        <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>Тема оформления</Typography>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+          {PRESETS.map((preset) => (
+            <Box key={preset.id} sx={{ width: { xs: '45%', sm: '30%' } }}>
+              <Card 
+                sx={{ 
+                  borderRadius: 3, 
+                  border: themePreset === preset.id ? `2px solid ${muiTheme.palette.primary.main}` : '1px solid transparent',
+                  boxShadow: themePreset === preset.id ? `0 0 0 2px ${muiTheme.palette.primary.light}40` : 'none',
+                  backgroundColor: preset.id === 'custom' ? muiTheme.palette.background.paper : preset.bg,
+                }}
+                variant={themePreset === preset.id ? "elevation" : "outlined"}
+              >
+                <CardActionArea 
+                  onClick={() => setThemePreset(preset.id)}
+                  sx={{ p: 2, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}
+                >
+                  {preset.id === 'custom' ? (
+                    <input 
+                      type="color" 
+                      value={customColor} 
+                      onChange={(e) => {
+                        setCustomColor(e.target.value);
+                        setThemePreset('custom');
+                      }}
+                      style={{ 
+                        width: 32, height: 32, padding: 0, 
+                        border: 'none', borderRadius: '50%', cursor: 'pointer',
+                        overflow: 'hidden' 
+                      }}
+                    />
+                  ) : (
+                    <Box sx={{ width: 24, height: 24, borderRadius: '50%', backgroundColor: preset.color }} />
+                  )}
+                  <Typography variant="body2" sx={{ 
+                    fontWeight: 600, 
+                    color: preset.id === 'gost-dark' || preset.id === 'tg-dark' ? '#fff' : '#000',
+                    ...(preset.id === 'custom' && { color: muiTheme.palette.text.primary })
+                  }}>
+                    {preset.label}
+                  </Typography>
+                </CardActionArea>
+              </Card>
+            </Box>
+          ))}
+        </Box>
+        
+        {themePreset === 'custom' && (
+          <Box sx={{ mt: 2, textAlign: 'center' }}>
+            <Typography variant="body2" color="text.secondary">
+              Нажмите на кружок цвета выше, чтобы выбрать свою палитру.
+            </Typography>
+          </Box>
+        )}
+      </DialogContent>
+      
+      <DialogActions sx={{ justifyContent: 'center', pb: 2 }}>
+        <Button 
+          variant="contained" 
+          size="large" 
+          onClick={completeSetup}
+          sx={{ px: 6, py: 1.5, borderRadius: 100, fontSize: '1.1rem' }}
+        >
+          Продолжить
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+};

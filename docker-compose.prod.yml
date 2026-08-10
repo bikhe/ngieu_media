@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   db:
-    image: postgres:15-alpine
+    image: postgis/postgis:15-3.3-alpine
     restart: always
     environment:
       POSTGRES_DB: ${DB_NAME:-events_db}
@@ -12,14 +12,19 @@ services:
       - postgres_data:/var/lib/postgresql/data
     # Port 5432 is not exposed for security in production
 
+  redis:
+    image: redis:7-alpine
+    restart: always
+
   backend:
     build:
-      context: ./backend
+      context: ./backend/api
     restart: always
     depends_on:
       - db
+      - redis
     env_file:
-      - ./backend/.env
+      - ./backend/api/.env
     volumes:
       - django_static:/app/staticfiles
       - django_media:/app/media
@@ -31,13 +36,13 @@ services:
 
   bot:
     build:
-      context: ./backend
+      context: ./backend/api
     restart: always
     depends_on:
       - db
       - backend
     env_file:
-      - ./backend/.env
+      - ./backend/api/.env
     command: python manage.py run_bot
 
   nginx:
@@ -45,7 +50,6 @@ services:
       context: .
       dockerfile: nginx/Dockerfile
       args:
-        - REACT_APP_API_URL=${REACT_APP_API_URL:-https://api.pivas.su/api}
         - VITE_API_URL=${VITE_API_URL:-https://api.pivas.su/api}
     restart: always
     ports:
@@ -53,13 +57,65 @@ services:
       - "443:443"
     depends_on:
       - backend
+      - update-broker
     volumes:
       - django_static:/usr/share/nginx/html/django_static:ro
       - django_media:/usr/share/nginx/html/django_media:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - /var/lib/letsencrypt:/var/lib/letsencrypt:ro
 
+  update-broker:
+    build:
+      context: ./backend/update-broker
+    restart: always
+    depends_on:
+      - redis
+      - backend
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.12
+    restart: always
+    environment:
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-dev_master_key}
+      - MEILI_NO_ANALYTICS=true
+    volumes:
+      - meili_data:/meili_data
+    # Not exposing port 7700 publicly, must be proxied via nginx or used by backend
+
+  celery_worker:
+    build:
+      context: ./backend/api
+    restart: always
+    depends_on:
+      - db
+      - redis
+    env_file:
+      - ./backend/api/.env
+    command: celery -A core worker -l info
+
+  prometheus:
+    image: prom/prometheus:latest
+    restart: always
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090" # Bind to localhost for security
+
+  grafana:
+    image: grafana/grafana:latest
+    restart: always
+    depends_on:
+      - prometheus
+    volumes:
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+
 volumes:
   postgres_data:
   django_static:
   django_media:
+  meili_data:
+  prometheus_data:
+  grafana_data:
