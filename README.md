@@ -43,7 +43,7 @@ graph TD
     Celery -.->|Отправка уведомлений| TG[Telegram API]
     
     UpdateBroker -.->|Подписка на обновления| Redis
-    UpdateBroker -.->|HTTP Polling (Fallback)| Backend
+    UpdateBroker -.->|HTTP Polling Fallback| Backend
     
     Bot[Telegram Bot <br> Aiogram] -->|Чтение/Запись| DB
     Bot -.->|Уведомления и Команды| TG
