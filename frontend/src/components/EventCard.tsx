@@ -9,6 +9,8 @@ import {
   Button,
   Box,
   Divider,
+  Avatar,
+  Tooltip,
 } from '@mui/material';
 import { Calendar, MapPin, FileText, MessageSquare, Lock, Check, Edit2, Trash2, X, Copy } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
@@ -23,6 +25,13 @@ interface ResponsiblePerson {
 interface Participant {
   id: number;
   username: string;
+  first_name?: string;
+  last_name?: string;
+}
+
+interface LocationData {
+  id: number;
+  name: string;
 }
 
 interface EventData {
@@ -31,7 +40,8 @@ interface EventData {
   description?: string;
   status: string; // 'OPEN', 'IN_PROGRESS', 'COMPLETED'
   date: string;
-  location?: string;
+  locations?: LocationData[];
+  short_comment?: string;
   required_skill: string; // 'ANY', 'VIDEO', 'DRONE', 'PRO', etc.
   max_participants: number;
   media_participants: Participant[];
@@ -198,19 +208,48 @@ export const EventCard: React.FC<EventCardProps> = ({
               {formattedDate}
             </Typography>
           </Box>
-          {event.location && (
+          {event.locations && event.locations.length > 0 && (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, pr: 2 }}>
               <MapPin size={14} style={{ opacity: 0.6 }} />
               <Typography variant="body2" color="text.secondary" noWrap>
-                {event.location}
+                {event.locations.map(l => l.name).join(', ')}
               </Typography>
             </Box>
           )}
         </Box>
 
+        {event.short_comment && (
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5, fontStyle: 'italic', wordBreak: 'break-word' }}>
+            {event.short_comment}
+          </Typography>
+        )}
+
+        {participantsCount > 0 && (
+          <Box sx={{ display: 'flex', gap: 0.5, mb: 1.5, flexWrap: 'wrap' }}>
+            {event.media_participants.map(p => {
+              const fullName = `${p.first_name || ''} ${p.last_name || ''}`.trim() || p.username;
+              const title = p.phone_number ? `${fullName} (${p.phone_number})` : fullName;
+              return (
+                <Tooltip key={p.id} title={title}>
+                  <Chip
+                    avatar={<Avatar sx={{ width: 24, height: 24, fontSize: '0.7rem' }}>{p.username.charAt(0).toUpperCase()}</Avatar>}
+                    label={fullName}
+                    size="small"
+                    variant="outlined"
+                    sx={{ height: 26, borderRadius: 13 }}
+                  />
+                </Tooltip>
+              );
+            })}
+          </Box>
+        )}
+
         {/* Organizer */}
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
           Орг: <span style={{ fontWeight: 500 }}>{orgName}</span>
+          {event.responsible_person?.phone_number && (
+            <span style={{ marginLeft: 4, color: 'inherit' }}>({event.responsible_person.phone_number})</span>
+          )}
         </Typography>
 
         {/* Actions Row */}
@@ -221,7 +260,8 @@ export const EventCard: React.FC<EventCardProps> = ({
               <IconButton
                 size="small"
                 color="primary"
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   const docLink = event.document_link;
                   if (!docLink) return;
                   docLink.trim().split(/\s+/).forEach((link: string) => {
@@ -242,7 +282,7 @@ export const EventCard: React.FC<EventCardProps> = ({
             {currentUser.features?.event_chat === true && canChat && (
               <IconButton
                 size="small"
-                onClick={() => onOpenChat(event.id)}
+                onClick={(e) => { e.stopPropagation(); onOpenChat(event.id); }}
                 title="Чат"
                 sx={{ p: 0.5 }}
               >
@@ -264,11 +304,11 @@ export const EventCard: React.FC<EventCardProps> = ({
               </>
             )}
 
-            {!isMyTask && hasAccess && !isFull && event.status !== 'PENDING' && (
+            {!isMyTask && !isFull && event.status !== 'PENDING' && (
               <Button
                 variant="contained"
                 size="small"
-                onClick={() => onTakeTask(event.id)}
+                onClick={(e) => { e.stopPropagation(); onTakeTask(event.id); }}
                 sx={{ borderRadius: 2, textTransform: 'none', px: 2 }}
               >
                 Я пойду

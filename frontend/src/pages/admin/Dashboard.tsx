@@ -1,9 +1,9 @@
 import React, { useEffect, useState, useContext, useCallback } from 'react';
-import { Box, Container, Typography, Card, Button, AppBar, Toolbar, Avatar, IconButton, Chip, Tabs, Tab, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Drawer, List, ListItem, ListItemText, Stack, Paper, MenuItem, Select, FormControl, InputLabel, OutlinedInput, Divider, Pagination, ToggleButton, ToggleButtonGroup } from '@mui/material';
+import { Box, Container, Typography, Card, Button, AppBar, Toolbar, Avatar, IconButton, Chip, Tabs, Tab, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Drawer, List, ListItem, ListItemText, Stack, Paper, MenuItem, Select, FormControl, InputLabel, OutlinedInput, Divider, Pagination, ToggleButton, ToggleButtonGroup, Accordion, AccordionSummary, AccordionDetails, Tooltip } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { format, parseISO } from 'date-fns';
 import toast, { Toaster } from 'react-hot-toast';
-import { Brightness4 as Brightness4Icon, Brightness7 as Brightness7Icon, Edit as EditIcon, Delete as DeleteIcon, Chat as ChatIcon, Send as SendIcon, Inventory2 as Inventory2Icon, MilitaryTech as MilitaryTechIcon, Link as LinkIcon, Timer as TimerIcon, ViewList as ViewListIcon, CalendarMonth as CalendarIcon, Palette as PaletteIcon } from '@mui/icons-material';
+import { Brightness4 as Brightness4Icon, Brightness7 as Brightness7Icon, Edit as EditIcon, Delete as DeleteIcon, Chat as ChatIcon, Send as SendIcon, Inventory2 as Inventory2Icon, MilitaryTech as MilitaryTechIcon, Link as LinkIcon, Timer as TimerIcon, ViewList as ViewListIcon, CalendarMonth as CalendarIcon, Palette as PaletteIcon, ExpandMore as ExpandMoreIcon } from '@mui/icons-material';
 
 import api from '../../services/api';
 import { useUpdatesBroker } from '../../services/useUpdatesBroker';
@@ -17,6 +17,7 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [events, setEvents] = useState<any[]>([]);
   const [equipment, setEquipment] = useState<any[]>([]);
+  const [locations, setLocations] = useState<any[]>([]);
   const [user, setUser] = useState<any>(null);
   const [features, setFeatures] = useState<any>({});
   const [tab, setTab] = useState('ALL');
@@ -33,7 +34,7 @@ const Dashboard = () => {
   
   // Расширенная форма со всеми полями из БД
   const [form, setForm] = useState({ 
-    title: '', date: '', time: '12:00', end_time: '14:00', deadline: '', location: '', 
+    title: '', date: '', time: '12:00', end_time: '14:00', deadline: '', location_ids: [] as number[], short_comment: '',
     content_type: 'PHOTO', document_link: '', result_link: '',
     max_participants: 1, required_skill: 'ANY', equipment_ids: [] as number[] 
   });
@@ -57,10 +58,11 @@ const Dashboard = () => {
       if (tab !== 'ALL') {
         params.status = tab;
       }
-      const [e, u, eq] = await Promise.all([
+      const [e, u, eq, loc] = await Promise.all([
         api.get('events/', { params }), 
         api.get('users/me/'),
-        api.get('equipment/') // Тянем список техники
+        api.get('equipment/'), // Тянем список техники
+        api.get('locations/') // Тянем список локаций
       ]);
       if (e.data.results !== undefined) {
         setEvents(e.data.results);
@@ -72,6 +74,7 @@ const Dashboard = () => {
       setUser(u.data); 
       setFeatures(u.data.features || {});
       setEquipment(eq.data);
+      setLocations(loc.data.results !== undefined ? loc.data.results : loc.data);
       
       setProfileForm({ first_name: u.data.first_name || '', last_name: u.data.last_name || '', telegram_id: u.data.telegram_id || '' });
       if (u.data.role === 'MAIN_ADMIN') setInvites((await api.get('invites/')).data);
@@ -178,10 +181,28 @@ const Dashboard = () => {
             </ToggleButtonGroup>
 
             {(isAdmin || user?.role === 'ORGANIZER') && (
-              <Button variant="contained" onClick={() => { 
-                setForm({title:'', date:'', time:'12:00', end_time:'14:00', deadline: '', location:'', content_type:'PHOTO', document_link:'', result_link: '', max_participants: 1, required_skill: 'ANY', equipment_ids: []}); 
-                setModal({open: true, id: null}); 
-              }}>Создать</Button>
+              <Stack direction="row" spacing={1}>
+                {isAdmin && (
+                  <Button variant="outlined" color="secondary" onClick={async () => {
+                    try {
+                      const res = await api.post('invites/generate/', { role: 'MEDIA' });
+                      navigator.clipboard.writeText(res.data.code);
+                      toast.success('Инвайт для СМИ скопирован: ' + res.data.code);
+                    } catch (e) {
+                      toast.error('Ошибка при генерации кода');
+                    }
+                  }}>
+                    + Инвайт СМИ
+                  </Button>
+                )}
+                <Button variant="outlined" disabled title="В разработке" sx={{ opacity: 0.6 }}>
+                  Импорт
+                </Button>
+                <Button variant="contained" onClick={() => { 
+                  setForm({title:'', date:'', time:'12:00', end_time:'14:00', deadline: '', location_ids: [], short_comment: '', content_type:'PHOTO', document_link:'', result_link: '', max_participants: 1, required_skill: 'ANY', equipment_ids: []}); 
+                  setModal({open: true, id: null}); 
+                }}>Создать</Button>
+              </Stack>
             )}
           </Box>
         </Box>
@@ -244,7 +265,7 @@ const Dashboard = () => {
                         {(isAdmin || (user?.role === 'ORGANIZER' && event.responsible_person?.id === user?.id)) && (
                           <Stack direction="row" spacing={0.5}>
                             <IconButton size="small" onClick={() => {
-                              setForm({...event, end_time: event.end_time || '', equipment_ids: event.booked_equipment?.map((eq:any) => eq.id) || []}); 
+                              setForm({...event, end_time: event.end_time || '', equipment_ids: event.booked_equipment?.map((eq:any) => eq.id) || [], location_ids: event.locations?.map((l:any) => l.id) || []}); 
                               setModal({open: true, id: event.id});
                             }} sx={{ p: 0.5 }}><EditIcon fontSize="small" /></IconButton>
 
@@ -258,10 +279,41 @@ const Dashboard = () => {
                         <TimerIcon sx={{ fontSize: 14, mr: 0.5 }} /> {format(parseISO(event.date), 'dd.MM.yyyy')} в {event.time?.slice(0,5)}{event.end_time ? ` — ${event.end_time.slice(0,5)}` : ''}
                       </Typography>
 
+                      {event.locations && event.locations.length > 0 && (
+                        <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', mb: 1, color: 'text.secondary', pr: 2 }}>
+                          <span style={{ marginRight: 4 }}>📍</span> {event.locations.map((l:any) => l.name).join(', ')}
+                        </Typography>
+                      )}
+
+                      {event.short_comment && (
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5, fontStyle: 'italic', wordBreak: 'break-word', fontSize: '0.8rem' }}>
+                          {event.short_comment}
+                        </Typography>
+                      )}
+
                       <Stack direction="row" spacing={0.75} sx={{ mb: 1.5, flexWrap: 'wrap', gap: 0.5 }}>
                         <Chip icon={<MilitaryTechIcon />} label={skillLabel} size="small" variant="outlined" color={event.required_skill !== 'ANY' ? 'secondary' : 'default'} sx={{ height: 24, fontSize: '0.7rem' }} />
                         <Chip label={`👥 ${event.media_participants?.length || 0} / ${event.max_participants}`} size="small" variant="outlined" sx={{ height: 24, fontSize: '0.7rem' }} />
                       </Stack>
+                      {event.media_participants?.length > 0 && (
+                        <Box sx={{ display: 'flex', gap: 0.5, mb: 1.5, flexWrap: 'wrap' }}>
+                          {event.media_participants.map((p: any) => {
+                            const fullName = `${p.first_name || ''} ${p.last_name || ''}`.trim() || p.username;
+                            const title = p.phone_number ? `${fullName} (${p.phone_number})` : fullName;
+                            return (
+                              <Tooltip key={p.id} title={title}>
+                                <Chip
+                                  avatar={<Avatar sx={{ width: 24, height: 24, fontSize: '0.7rem' }}>{p.username.charAt(0).toUpperCase()}</Avatar>}
+                                  label={fullName}
+                                  size="small"
+                                  variant="outlined"
+                                  sx={{ height: 26, borderRadius: 13 }}
+                                />
+                              </Tooltip>
+                            );
+                          })}
+                        </Box>
+                      )}
 
                       {event.booked_equipment?.length > 0 && (
                         <Box sx={{ mb: 1.5 }}>
@@ -274,7 +326,10 @@ const Dashboard = () => {
                       <Box sx={{ mt: 'auto' }}>
                         <Divider sx={{ mb: 1.5 }} />
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.7rem' }}>Орг: {event.responsible_person?.first_name || event.responsible_person?.username}</Typography>
+                          <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.7rem' }}>
+                            Орг: <span style={{ fontWeight: 500 }}>{event.responsible_person?.first_name || event.responsible_person?.username}</span>
+                            {event.responsible_person?.phone_number && ` (${event.responsible_person.phone_number})`}
+                          </Typography>
                           <Stack direction="row" spacing={0.5}>
                             {event.result_link && (
                               <IconButton
@@ -336,7 +391,7 @@ const Dashboard = () => {
                       {(isAdmin || (user?.role === 'ORGANIZER' && event.responsible_person?.id === user?.id)) && (
                         <Stack direction="row" spacing={0.5}>
                           <IconButton size="small" onClick={() => {
-                            setForm({...event, end_time: event.end_time || '', equipment_ids: event.booked_equipment?.map((eq:any) => eq.id) || []}); 
+                            setForm({...event, end_time: event.end_time || '', equipment_ids: event.booked_equipment?.map((eq:any) => eq.id) || [], location_ids: event.locations?.map((l:any) => l.id) || []}); 
                             setModal({open: true, id: event.id});
                           }} sx={{ p: 0.5 }}><EditIcon fontSize="small" /></IconButton>
 
@@ -350,10 +405,41 @@ const Dashboard = () => {
                       <TimerIcon sx={{ fontSize: 14, mr: 0.5 }} /> {format(parseISO(event.date), 'dd.MM.yyyy')} в {event.time?.slice(0,5)}{event.end_time ? ` — ${event.end_time.slice(0,5)}` : ''}
                     </Typography>
 
+                    {event.locations && event.locations.length > 0 && (
+                      <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', mb: 1, color: 'text.secondary', pr: 2 }}>
+                        <span style={{ marginRight: 4 }}>📍</span> {event.locations.map((l:any) => l.name).join(', ')}
+                      </Typography>
+                    )}
+
+                    {event.short_comment && (
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5, fontStyle: 'italic', wordBreak: 'break-word', fontSize: '0.8rem' }}>
+                        {event.short_comment}
+                      </Typography>
+                    )}
+
                     <Stack direction="row" spacing={0.75} sx={{ mb: 1.5, flexWrap: 'wrap', gap: 0.5 }}>
                       <Chip icon={<MilitaryTechIcon />} label={skillLabel} size="small" variant="outlined" color={event.required_skill !== 'ANY' ? 'secondary' : 'default'} sx={{ height: 24, fontSize: '0.7rem' }} />
                       <Chip label={`👥 ${event.media_participants?.length || 0} / ${event.max_participants}`} size="small" variant="outlined" sx={{ height: 24, fontSize: '0.7rem' }} />
                     </Stack>
+                    {event.media_participants?.length > 0 && (
+                      <Box sx={{ display: 'flex', gap: 0.5, mb: 1.5, flexWrap: 'wrap' }}>
+                        {event.media_participants.map((p: any) => {
+                          const fullName = `${p.first_name || ''} ${p.last_name || ''}`.trim() || p.username;
+                          const title = p.phone_number ? `${fullName} (${p.phone_number})` : fullName;
+                          return (
+                            <Tooltip key={p.id} title={title}>
+                              <Chip
+                                avatar={<Avatar sx={{ width: 24, height: 24, fontSize: '0.7rem' }}>{p.username.charAt(0).toUpperCase()}</Avatar>}
+                                label={fullName}
+                                size="small"
+                                variant="outlined"
+                                sx={{ height: 26, borderRadius: 13 }}
+                              />
+                            </Tooltip>
+                          );
+                        })}
+                      </Box>
+                    )}
 
                     {event.booked_equipment?.length > 0 && (
                       <Box sx={{ mb: 1.5 }}>
@@ -366,7 +452,10 @@ const Dashboard = () => {
                     <Box sx={{ mt: 'auto' }}>
                       <Divider sx={{ mb: 1.5 }} />
                       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.7rem' }}>Орг: {event.responsible_person?.first_name || event.responsible_person?.username}</Typography>
+                        <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.7rem' }}>
+                          Орг: <span style={{ fontWeight: 500 }}>{event.responsible_person?.first_name || event.responsible_person?.username}</span>
+                          {event.responsible_person?.phone_number && ` (${event.responsible_person.phone_number})`}
+                        </Typography>
                         <Stack direction="row" spacing={0.5}>
                           {event.result_link && (
                             <IconButton
@@ -427,8 +516,26 @@ const Dashboard = () => {
             <TextField fullWidth type="time" label="Время окончания" slotProps={{ inputLabel: { shrink: true } }} value={form.end_time || ''} onChange={e => setForm({...form, end_time: e.target.value})} />
           </Stack>
 
-          
-          <TextField fullWidth label="Локация" margin="normal" value={form.location} onChange={e => setForm({...form, location: e.target.value})} />
+          <FormControl fullWidth sx={{ mt: 2, mb: 1 }}>
+            <InputLabel>Локации</InputLabel>
+            <Select
+              multiple
+              value={form.location_ids}
+              onChange={(e:any) => setForm({...form, location_ids: e.target.value})}
+              input={<OutlinedInput label="Локации" />}
+              renderValue={(selected) => (
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                  {selected.map((value: any) => (
+                    <Chip key={value} label={locations.find(loc => loc.id === value)?.name || value} size="small" />
+                  ))}
+                </Box>
+              )}
+            >
+              {locations.map((loc) => (
+                <MenuItem key={loc.id} value={loc.id}>{loc.name}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
           
           <Stack direction="row" spacing={2} sx={{ mt: 1 }}>
             <FormControl fullWidth>
@@ -445,34 +552,41 @@ const Dashboard = () => {
             </FormControl>
           </Stack>
 
-          <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
-            <TextField fullWidth type="number" label="Макс. участников" value={form.max_participants} onChange={e => setForm({...form, max_participants: parseInt(e.target.value)})} />
-            <TextField fullWidth type="datetime-local" label="Дедлайн сдачи" slotProps={{ inputLabel: { shrink: true } }} value={form.deadline} onChange={e => setForm({...form, deadline: e.target.value})} />
-          </Stack>
+          <TextField fullWidth type="number" label="Макс. участников" value={form.max_participants} onChange={e => setForm({...form, max_participants: parseInt(e.target.value)})} sx={{ mt: 2 }} />
 
-          <FormControl fullWidth sx={{ mt: 2 }}>
-            <InputLabel>Необходимая техника</InputLabel>
-            <Select
-              multiple
-              value={form.equipment_ids}
-              onChange={(e:any) => setForm({...form, equipment_ids: e.target.value})}
-              input={<OutlinedInput label="Необходимая техника" />}
-              renderValue={(selected) => (
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                  {selected.map((value: any) => (
-                    <Chip key={value} label={equipment.find(eq => eq.id === value)?.name} size="small" />
+          <Accordion sx={{ mt: 2, boxShadow: 'none', '&:before': { display: 'none' }, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Typography sx={{ fontWeight: 'bold' }}>Дополнительные параметры</Typography>
+            </AccordionSummary>
+            <AccordionDetails sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <TextField fullWidth type="datetime-local" label="Дедлайн сдачи (по умолчанию +7 дней)" slotProps={{ inputLabel: { shrink: true } }} value={form.deadline} onChange={e => setForm({...form, deadline: e.target.value})} />
+              <TextField fullWidth label="Краткий комментарий" value={form.short_comment} onChange={e => setForm({...form, short_comment: e.target.value})} helperText="Кратко для карточки мероприятия" />
+              
+              <FormControl fullWidth>
+                <InputLabel>Необходимая техника</InputLabel>
+                <Select
+                  multiple
+                  value={form.equipment_ids}
+                  onChange={(e:any) => setForm({...form, equipment_ids: e.target.value})}
+                  input={<OutlinedInput label="Необходимая техника" />}
+                  renderValue={(selected) => (
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                      {selected.map((value: any) => (
+                        <Chip key={value} label={equipment.find(eq => eq.id === value)?.name || value} size="small" />
+                      ))}
+                    </Box>
+                  )}
+                >
+                  {equipment.map((eq) => (
+                    <MenuItem key={eq.id} value={eq.id}>{eq.name}</MenuItem>
                   ))}
-                </Box>
-              )}
-            >
-              {equipment.map((eq) => (
-                <MenuItem key={eq.id} value={eq.id}>{eq.name}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+                </Select>
+              </FormControl>
 
-          <TextField fullWidth label="Ссылка на ТЗ / Сценарий" margin="normal" value={form.document_link} onChange={e => setForm({...form, document_link: e.target.value})} />
-          <TextField fullWidth label="Ссылка на результат (облако)" margin="normal" value={form.result_link} onChange={e => setForm({...form, result_link: e.target.value})} />
+              <TextField fullWidth label="Ссылка на ТЗ / Сценарий" value={form.document_link} onChange={e => setForm({...form, document_link: e.target.value})} />
+              <TextField fullWidth label="Ссылка на результат (облако)" value={form.result_link} onChange={e => setForm({...form, result_link: e.target.value})} />
+            </AccordionDetails>
+          </Accordion>
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
           <Button onClick={() => setModal({open: false, id: null})}>Отмена</Button>

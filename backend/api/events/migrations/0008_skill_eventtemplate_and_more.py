@@ -12,7 +12,7 @@ def create_default_skills(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('events', '0007_event_description_user_phone_number_alter_comment_id_and_more'),
+        ('events', '0006_equipmentloan_loan_end_equipmentloan_loan_start_and_more'),
     ]
 
     operations = [

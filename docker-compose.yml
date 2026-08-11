@@ -25,6 +25,8 @@ services:
     restart: always
     ports:
       - "8000:8000"
+    volumes:
+      - ./backend/api:/app
     depends_on:
       - db
       - redis

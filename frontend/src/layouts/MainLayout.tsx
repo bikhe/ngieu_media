@@ -79,7 +79,7 @@ export const MainLayout = () => {
   const adminMenu = [
     { title: 'Дашборд', path: '/', icon: <Home size={20} /> },
     { title: 'Склад', path: '/warehouse', icon: <Package size={20} /> },
-    { title: 'Аналитика', path: '/analytics', icon: <BarChart2 size={20} /> },
+    { title: 'Аналитика (В разработке)', path: '/analytics', icon: <BarChart2 size={20} />, disabled: true },
     { title: 'Пользователи', path: '/users', icon: <Users size={20} /> },
   ];
 
@@ -103,14 +103,17 @@ export const MainLayout = () => {
           return (
             <ListItem key={item.path} disablePadding sx={{ mb: 1 }}>
               <ListItemButton
+                disabled={item.disabled}
                 selected={active}
                 onClick={() => {
+                  if (item.disabled) return;
                   navigate(item.path);
                   if (!isDesktop) setMobileOpen(false);
                 }}
                 sx={{
                   borderRadius: '16px',
                   bgcolor: active ? alpha(muiTheme.palette.primary.main, 0.1) : 'transparent',
+                  opacity: item.disabled ? 0.5 : 1,
                   '&:hover': { bgcolor: alpha(muiTheme.palette.primary.main, 0.05) },
                   '&.Mui-selected': { bgcolor: alpha(muiTheme.palette.primary.main, 0.15) }
                 }}

@@ -15,10 +15,15 @@ class EventTemplateSerializer(serializers.ModelSerializer):
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id', 'username', 'first_name', 'last_name', 'role', 'telegram_id', 'phone_number', 'skill_level', 'is_staff', 'is_superuser']
+        fields = ['id', 'username', 'first_name', 'last_name', 'role', 'telegram_id', 'phone_number', 'skill_level', 'is_staff', 'is_superuser', 'can_approve_events', 'can_manage_warehouse', 'can_view_all_events']
 
 class InviteCodeSerializer(serializers.ModelSerializer):
     class Meta: model = InviteCode; fields = '__all__'
+
+class LocationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Location
+        fields = '__all__'
 
 class EquipmentSerializer(serializers.ModelSerializer):
     available_quantity = serializers.ReadOnlyField()
@@ -43,6 +48,10 @@ class EventSerializer(serializers.ModelSerializer):
     equipment_ids = serializers.PrimaryKeyRelatedField(
         queryset=Equipment.objects.all(), source='booked_equipment', many=True, write_only=True, required=False
     )
+    locations = LocationSerializer(many=True, read_only=True)
+    location_ids = serializers.PrimaryKeyRelatedField(
+        queryset=Location.objects.all(), source='locations', many=True, write_only=True, required=False
+    )
     class Meta: model = Event; fields = '__all__'
 
     def validate(self, attrs):
@@ -50,6 +59,15 @@ class EventSerializer(serializers.ModelSerializer):
         date = attrs.get('date', self.instance.date if self.instance else None)
         time_val = attrs.get('time', self.instance.time if self.instance else None)
         end_time_val = attrs.get('end_time', self.instance.end_time if self.instance else None)
+        deadline = attrs.get('deadline', self.instance.deadline if self.instance else None)
+        
+        if date and not deadline:
+            from datetime import datetime, timedelta, time
+            from django.utils.timezone import make_aware, get_current_timezone
+            try:
+                attrs['deadline'] = make_aware(datetime.combine(date + timedelta(days=7), time(23, 59, 59)), get_current_timezone())
+            except ValueError:
+                attrs['deadline'] = datetime.combine(date + timedelta(days=7), time(23, 59, 59))
         
         if booked_equipment and date:
             from datetime import datetime, timedelta, time

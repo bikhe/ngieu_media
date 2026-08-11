@@ -3,7 +3,7 @@ import {
   Box, Container, Typography, Card, Button, AppBar, Toolbar, Avatar, IconButton, Chip, Paper, Stack,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, MenuItem, Select,
   FormControl, InputLabel, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions,
-  Tooltip, TablePagination
+  Tooltip, TablePagination, Checkbox, FormControlLabel
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -52,7 +52,11 @@ const UsersManagement = () => {
     last_name: '',
     role: 'ORGANIZER',
     skill_level: 'ANY',
-    telegram_id: ''
+    telegram_id: '',
+    phone_number: '',
+    can_approve_events: false,
+    can_manage_warehouse: false,
+    can_view_all_events: false
   });
 
   // Pagination State
@@ -142,7 +146,11 @@ const UsersManagement = () => {
         last_name: item.last_name || '',
         role: item.role,
         skill_level: item.skill_level || 'ANY',
-        telegram_id: item.telegram_id || ''
+        telegram_id: item.telegram_id || '',
+        phone_number: item.phone_number || '',
+        can_approve_events: item.can_approve_events || false,
+        can_manage_warehouse: item.can_manage_warehouse || false,
+        can_view_all_events: item.can_view_all_events || false
       });
       setModal({ open: true, id: item.id });
     } else {
@@ -153,7 +161,11 @@ const UsersManagement = () => {
         last_name: '',
         role: 'ORGANIZER',
         skill_level: 'ANY',
-        telegram_id: ''
+        telegram_id: '',
+        phone_number: '',
+        can_approve_events: false,
+        can_manage_warehouse: false,
+        can_view_all_events: false
       });
       setModal({ open: true, id: null });
     }
@@ -253,6 +265,7 @@ const UsersManagement = () => {
                   <TableCell sx={{ fontWeight: 'bold' }}>Пользователь</TableCell>
                   <TableCell sx={{ fontWeight: 'bold' }}>Логин</TableCell>
                   <TableCell sx={{ fontWeight: 'bold' }}>Роль</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold' }}>Телефон</TableCell>
                   <TableCell sx={{ fontWeight: 'bold' }}>Telegram ID</TableCell>
                   <TableCell sx={{ fontWeight: 'bold' }}>Уровень СМИ</TableCell>
                   <TableCell sx={{ fontWeight: 'bold' }} align="right">Действия</TableCell>
@@ -282,6 +295,7 @@ const UsersManagement = () => {
                           size="small"
                         />
                       </TableCell>
+                      <TableCell>{item.phone_number || '—'}</TableCell>
                       <TableCell>{item.telegram_id || '—'}</TableCell>
                       <TableCell>
                         {item.role === 'MEDIA' ? (
@@ -402,13 +416,40 @@ const UsersManagement = () => {
               </FormControl>
             </Stack>
 
-            <TextField
-              fullWidth
-              label="Telegram ID"
-              value={form.telegram_id}
-              onChange={(e) => setForm({ ...form, telegram_id: e.target.value })}
-              helperText="Для отправки уведомлений телеграм-ботом"
-            />
+            <Stack direction="row" spacing={2}>
+              <TextField
+                fullWidth
+                label="Telegram ID"
+                value={form.telegram_id}
+                onChange={(e) => setForm({ ...form, telegram_id: e.target.value })}
+                helperText="Для уведомлений"
+              />
+              <TextField
+                fullWidth
+                label="Телефон"
+                value={form.phone_number}
+                onChange={(e) => setForm({ ...form, phone_number: e.target.value })}
+                helperText="Для связи"
+              />
+            </Stack>
+
+            {form.role === 'ORGANIZER' && (
+              <Stack spacing={1} sx={{ mt: 1, p: 2, bgcolor: 'action.hover', borderRadius: 2 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>Права доступа (Организатор):</Typography>
+                <FormControlLabel
+                  control={<Checkbox checked={form.can_approve_events} onChange={(e) => setForm({ ...form, can_approve_events: e.target.checked })} />}
+                  label="Может утверждать задачи"
+                />
+                <FormControlLabel
+                  control={<Checkbox checked={form.can_manage_warehouse} onChange={(e) => setForm({ ...form, can_manage_warehouse: e.target.checked })} />}
+                  label="Может управлять складом"
+                />
+                <FormControlLabel
+                  control={<Checkbox checked={form.can_view_all_events} onChange={(e) => setForm({ ...form, can_view_all_events: e.target.checked })} />}
+                  label="Видит задачи всех оргов"
+                />
+              </Stack>
+            )}
           </Stack>
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>

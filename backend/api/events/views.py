@@ -170,8 +170,8 @@ class EquipmentViewSet(viewsets.ModelViewSet):
     def check_permissions(self, request):
         super().check_permissions(request)
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            if request.user.role != 'MAIN_ADMIN':
-                raise PermissionDenied("Только администратор может управлять оборудованием.")
+            if request.user.role != 'MAIN_ADMIN' and not getattr(request.user, 'can_manage_warehouse', False):
+                raise PermissionDenied("У вас нет прав для управления оборудованием.")
 
 class EventViewSet(viewsets.ModelViewSet):
     queryset = Event.objects.all()
@@ -184,7 +184,7 @@ class EventViewSet(viewsets.ModelViewSet):
     def check_object_permissions(self, request, obj):
         super().check_object_permissions(request, obj)
         if self.action in ['update', 'partial_update', 'destroy']:
-            if request.user.role == 'MAIN_ADMIN':
+            if request.user.role == 'MAIN_ADMIN' or getattr(request.user, 'can_approve_events', False) or getattr(request.user, 'can_view_all_events', False):
                 return
             if request.user.role == 'ORGANIZER' and obj.responsible_person == request.user:
                 return
@@ -200,13 +200,13 @@ class EventViewSet(viewsets.ModelViewSet):
         qs = Event.objects.all()
         if ENABLE_STRICT_DEADLINES:
             qs.filter(status='IN_PROGRESS', deadline__lt=timezone.now()).update(status='OVERDUE')
-        if user.role == 'MAIN_ADMIN': return qs
+        if user.role == 'MAIN_ADMIN' or getattr(user, 'can_view_all_events', False): return qs
         elif user.role == 'MEDIA': return qs.exclude(status__in=['PENDING', 'REJECTED'])
         return qs.filter(responsible_person=user)
 
     @action(detail=False, methods=['GET'])
     def export_csv(self, request):
-        if not ENABLE_CSV_REPORTS or request.user.role != 'MAIN_ADMIN': return Response(status=403)
+        if not ENABLE_CSV_REPORTS or (request.user.role != 'MAIN_ADMIN' and not getattr(request.user, 'can_view_all_events', False)): return Response(status=403)
         qs = self.get_queryset()
         
         # Filter by date range
@@ -315,8 +315,8 @@ class EventViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['GET'])
     def analytics(self, request):
-        if request.user.role != 'MAIN_ADMIN':
-            raise PermissionDenied("Только администратор имеет доступ к аналитике.")
+        if request.user.role != 'MAIN_ADMIN' and not getattr(request.user, 'can_view_all_events', False):
+            raise PermissionDenied("У вас нет доступа к аналитике.")
 
         from django.db.models import Count, Q
         from django.db.models.functions import TruncMonth
@@ -546,14 +546,14 @@ class EventViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
-        if request.user.role != 'MAIN_ADMIN':
-            return Response({'error': 'Только администратор может одобрять задачи'}, status=403)
+        if request.user.role != 'MAIN_ADMIN' and not getattr(request.user, 'can_approve_events', False):
+            return Response({'error': 'У вас нет прав для одобрения задач'}, status=403)
         event = self.get_object(); event.status = 'OPEN'; event.save(); return Response({'status': 'ok'})
 
     @action(detail=True, methods=['post'])
     def reject(self, request, pk=None):
-        if request.user.role != 'MAIN_ADMIN':
-            return Response({'error': 'Только администратор может отклонять задачи'}, status=403)
+        if request.user.role != 'MAIN_ADMIN' and not getattr(request.user, 'can_approve_events', False):
+            return Response({'error': 'У вас нет прав для отклонения задач'}, status=403)
         event = self.get_object(); event.status = 'REJECTED'; event.save(); return Response({'status': 'ok'})
 
     @action(detail=True, methods=['get', 'post'])
@@ -718,7 +718,7 @@ class EquipmentLoanViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        if user.role == 'MAIN_ADMIN':
+        if user.role == 'MAIN_ADMIN' or getattr(user, 'can_manage_warehouse', False):
             return EquipmentLoan.objects.all().order_by('-requested_at')
         return EquipmentLoan.objects.filter(user=user).order_by('-requested_at')
 
@@ -727,8 +727,8 @@ class EquipmentLoanViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def approve_issue(self, request, pk=None):
-        if request.user.role != 'MAIN_ADMIN':
-            return Response({'error': 'Только администратор может выдавать технику'}, status=403)
+        if request.user.role != 'MAIN_ADMIN' and not getattr(request.user, 'can_manage_warehouse', False):
+            return Response({'error': 'У вас нет прав для выдачи техники'}, status=403)
         loan = self.get_object()
         if loan.status != 'REQUESTED':
             return Response({'error': 'Можно выдать только запрошенную технику'}, status=400)
@@ -748,8 +748,8 @@ class EquipmentLoanViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def reject_request(self, request, pk=None):
-        if request.user.role != 'MAIN_ADMIN':
-            return Response({'error': 'Только администратор может отклонять запросы'}, status=403)
+        if request.user.role != 'MAIN_ADMIN' and not getattr(request.user, 'can_manage_warehouse', False):
+            return Response({'error': 'У вас нет прав для отклонения запросов'}, status=403)
         loan = self.get_object()
         if loan.status != 'REQUESTED':
             return Response({'error': 'Можно отклонить только запрошенную технику'}, status=400)
@@ -760,7 +760,7 @@ class EquipmentLoanViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def request_return(self, request, pk=None):
         loan = self.get_object()
-        if loan.user != request.user and request.user.role != 'MAIN_ADMIN':
+        if loan.user != request.user and request.user.role != 'MAIN_ADMIN' and not getattr(request.user, 'can_manage_warehouse', False):
             return Response({'error': 'Вы не можете сдать чужую технику'}, status=403)
         if loan.status != 'ISSUED':
             return Response({'error': 'Сдать можно только выданную технику'}, status=400)
@@ -770,8 +770,8 @@ class EquipmentLoanViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def approve_return(self, request, pk=None):
-        if request.user.role != 'MAIN_ADMIN':
-            return Response({'error': 'Только администратор может подтвердить возврат'}, status=403)
+        if request.user.role != 'MAIN_ADMIN' and not getattr(request.user, 'can_manage_warehouse', False):
+            return Response({'error': 'У вас нет прав для подтверждения возврата'}, status=403)
         loan = self.get_object()
         if loan.status != 'RETURN_REQUESTED' and loan.status != 'ISSUED':
             return Response({'error': 'Возврат возможен только для выданной или запрошенной к возврату техники'}, status=400)
@@ -796,6 +796,8 @@ class SkillViewSet(viewsets.ModelViewSet):
             if request.user.role != 'MAIN_ADMIN':
                 raise PermissionDenied("Только администратор может управлять ролями.")
 
+
+
 class EventTemplateViewSet(viewsets.ModelViewSet):
     queryset = EventTemplate.objects.all()
     serializer_class = EventTemplateSerializer
@@ -807,6 +809,18 @@ class EventTemplateViewSet(viewsets.ModelViewSet):
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
             if request.user.role != 'MAIN_ADMIN':
                 raise PermissionDenied("Только администратор может управлять шаблонами.")
+
+class LocationViewSet(viewsets.ModelViewSet):
+    queryset = Location.objects.all()
+    serializer_class = LocationSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = OptionalPageNumberPagination
+
+    def check_permissions(self, request):
+        super().check_permissions(request)
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            if request.user.role != 'MAIN_ADMIN' and not getattr(request.user, 'can_manage_warehouse', False):
+                raise PermissionDenied("У вас нет прав для управления локациями.")
 
 class UpdatesView(APIView):
     permission_classes = [AllowAny]

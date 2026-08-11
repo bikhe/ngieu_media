@@ -16,6 +16,14 @@ class User(AbstractUser):
     skill_level = models.CharField(max_length=20, default='ANY', verbose_name="Уровень")
     telegram_id = models.CharField(max_length=100, blank=True, null=True)
     phone_number = models.CharField(max_length=20, blank=True, null=True, verbose_name="Номер телефона")
+    
+    can_approve_events = models.BooleanField(default=False, verbose_name="Может одобрять мероприятия")
+    can_manage_warehouse = models.BooleanField(default=False, verbose_name="Может управлять складом")
+    can_view_all_events = models.BooleanField(default=False, verbose_name="Может просматривать все мероприятия")
+
+class Location(models.Model):
+    name = models.CharField(max_length=255, unique=True)
+    def __str__(self): return self.name
 
 class InviteCode(models.Model):
     code = models.CharField(max_length=20, unique=True)
@@ -149,7 +157,9 @@ class Event(models.Model):
     end_time = models.TimeField(null=True, blank=True)
     deadline = models.DateTimeField(null=True, blank=True)
 
-    location = models.CharField(max_length=255)
+    location = models.CharField(max_length=255, blank=True, null=True) # Оставляем для совместимости
+    locations = models.ManyToManyField(Location, blank=True, related_name='events')
+    short_comment = models.CharField(max_length=255, blank=True, null=True, verbose_name="Короткий комментарий")
     description = models.TextField(blank=True, null=True, verbose_name="Комментарий")
     content_type = models.CharField(max_length=10, choices=CONTENT_TYPES, default='PHOTO')
     required_skill = models.CharField(max_length=20, default='ANY')

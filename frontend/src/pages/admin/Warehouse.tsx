@@ -109,9 +109,9 @@ const Warehouse = () => {
     try {
       const uRes = await api.get('users/me/');
 
-      if (uRes.data.role !== 'MAIN_ADMIN') {
-        toast.error("Доступ разрешен только администраторам");
-        navigate('/');
+      if (uRes.data.role !== 'MAIN_ADMIN' && !uRes.data.can_manage_warehouse) {
+        toast.error("Нет прав для управления складом");
+        navigate('/app');
         return;
       }
 

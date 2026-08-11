@@ -37,7 +37,10 @@ const RequireAuth = ({ children, requireAdmin = false }: { children: JSX.Element
         const me = await apiService.getUserMe();
         if (me && me.id) {
           setIsAuth(true);
-          setIsAdmin(me.role === 'MAIN_ADMIN' || me.is_staff || me.is_superuser);
+          setIsAdmin(
+            me.role === 'MAIN_ADMIN' || me.is_staff || me.is_superuser ||
+            me.can_approve_events || me.can_manage_warehouse || me.can_view_all_events
+          );
         }
       } catch (err) {
         console.error(err);
@@ -77,7 +80,10 @@ const IndexPage = () => {
       try {
         const me = await apiService.getUserMe();
         if (me && me.id) {
-          setIsAdmin(me.role === 'MAIN_ADMIN' || me.is_staff || me.is_superuser);
+          setIsAdmin(
+            me.role === 'MAIN_ADMIN' || me.is_staff || me.is_superuser ||
+            me.can_approve_events || me.can_manage_warehouse || me.can_view_all_events
+          );
         }
       } catch (err) {
         console.error(err);
