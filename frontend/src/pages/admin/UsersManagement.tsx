@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useContext, useCallback } from 'react';
+import React, { useEffect, useState, useContext, useCallback, useRef } from 'react';
 import {
   Box, Container, Typography, Card, Button, AppBar, Toolbar, Avatar, IconButton, Chip, Paper, Stack,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, MenuItem, Select,
@@ -42,6 +42,7 @@ const UsersManagement = () => {
   const [users, setUsers] = useState<any[]>([]);
   const [user, setUser] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // User Form Modal State
   const [modal, setModal] = useState({ open: false, id: null as number | null });
@@ -129,7 +130,10 @@ const UsersManagement = () => {
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setSearchQuery(val);
-    fetchUsers(page, rowsPerPage, val);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => {
+      fetchUsers(page, rowsPerPage, val);
+    }, 300);
   };
 
   // Real-time updates broker integration
@@ -433,9 +437,9 @@ const UsersManagement = () => {
               />
             </Stack>
 
-            {form.role === 'ORGANIZER' && (
+            {(form.role === 'ORGANIZER' || form.role === 'MEDIA') && (
               <Stack spacing={1} sx={{ mt: 1, p: 2, bgcolor: 'action.hover', borderRadius: 2 }}>
-                <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>Права доступа (Организатор):</Typography>
+                <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>Права доступа (дополнительно):</Typography>
                 <FormControlLabel
                   control={<Checkbox checked={form.can_approve_events} onChange={(e) => setForm({ ...form, can_approve_events: e.target.checked })} />}
                   label="Может утверждать задачи"

@@ -13,4 +13,6 @@ RUN uv pip install --system -r requirements.txt gunicorn
 COPY . .
 # Собираем статику админки Django
 RUN python manage.py collectstatic --noinput
+RUN adduser --disabled-password --gecos '' appuser
+USER appuser
 CMD ["gunicorn", "--bind", "0.0.0.0:8000", "core.wsgi:application"]

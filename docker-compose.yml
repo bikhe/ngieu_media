@@ -1,4 +1,3 @@
-version: '3.8'
 
 services:
   db:
@@ -42,6 +41,8 @@ services:
     build:
       context: ./backend/api
     restart: always
+    volumes:
+      - ./backend/api:/app
     depends_on:
       - db
       - backend
@@ -55,6 +56,9 @@ services:
     restart: always
     ports:
       - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
     depends_on:
       - backend
     env_file:
@@ -66,25 +70,19 @@ services:
     restart: always
     ports:
       - "8001:8001"
+    volumes:
+      - ./backend/update-broker:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8001 --reload
     depends_on:
       - redis
       - backend
-
-  meilisearch:
-    image: getmeili/meilisearch:v1.12
-    restart: always
-    environment:
-      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-dev_master_key}
-      - MEILI_NO_ANALYTICS=true
-    ports:
-      - "7700:7700"
-    volumes:
-      - meili_data:/meili_data
 
   celery_worker:
     build:
       context: ./backend/api
     restart: always
+    volumes:
+      - ./backend/api:/app
     depends_on:
       - db
       - redis
@@ -92,27 +90,5 @@ services:
       - ./backend/api/.env
     command: celery -A core worker -l info
 
-  prometheus:
-    image: prom/prometheus:latest
-    restart: always
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus_data:/prometheus
-    ports:
-      - "9090:9090"
-
-  grafana:
-    image: grafana/grafana:latest
-    restart: always
-    depends_on:
-      - prometheus
-    volumes:
-      - grafana_data:/var/lib/grafana
-    ports:
-      - "3000:3000"
-
 volumes:
   postgres_data:
-  meili_data:
-  prometheus_data:
-  grafana_data:

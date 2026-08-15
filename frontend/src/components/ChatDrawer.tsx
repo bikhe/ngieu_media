@@ -195,6 +195,25 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
                     <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                       {comment.text}
                     </Typography>
+                    {comment.created_at && (
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          display: 'block',
+                          textAlign: 'right',
+                          mt: 0.5,
+                          opacity: 0.7,
+                          fontSize: '0.65rem',
+                        }}
+                      >
+                        {new Date(comment.created_at).toLocaleString('ru-RU', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          day: 'numeric',
+                          month: 'short',
+                        })}
+                      </Typography>
+                    )}
                   </Paper>
                 </ListItem>
               );

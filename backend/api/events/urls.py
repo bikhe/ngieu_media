@@ -3,7 +3,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     UserViewSet, EventViewSet, RegisterView, InviteCodeViewSet, EquipmentViewSet,
     TelegramAuthView, TelegramRegisterView, TelegramLinkView, EquipmentLoanViewSet,
-    UpdatesView, SkillViewSet, EventTemplateViewSet, LocationViewSet
+    UpdatesView, SkillViewSet, EventTemplateViewSet, LocationViewSet, EventRoleViewSet
 )
 
 router = DefaultRouter()
@@ -15,6 +15,7 @@ router.register(r'loans', EquipmentLoanViewSet)
 router.register(r'skills', SkillViewSet)
 router.register(r'templates', EventTemplateViewSet)
 router.register(r'locations', LocationViewSet)
+router.register(r'event-roles', EventRoleViewSet)
 
 urlpatterns = [
     path('', include(router.urls)),

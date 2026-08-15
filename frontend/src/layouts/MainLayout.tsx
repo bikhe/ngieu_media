@@ -28,11 +28,13 @@ import {
   Palette,
   LogOut,
   User as UserIcon,
-  Menu
+  Menu,
+  Link as LinkIcon
 } from 'lucide-react';
 import { apiService } from '../services/api';
 import { ThemeSettingsContext } from '../theme/ThemeSettingsContext';
 import ProfileModal from '../components/ProfileModal';
+import InviteModal from '../components/InviteModal';
 
 const DRAWER_WIDTH = 280;
 
@@ -47,6 +49,7 @@ export const MainLayout = () => {
   const [loading, setLoading] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [inviteModalOpen, setInviteModalOpen] = useState(false);
 
   useEffect(() => {
     const fetchMe = async () => {
@@ -79,7 +82,7 @@ export const MainLayout = () => {
   const adminMenu = [
     { title: 'Дашборд', path: '/', icon: <Home size={20} /> },
     { title: 'Склад', path: '/warehouse', icon: <Package size={20} /> },
-    { title: 'Аналитика (В разработке)', path: '/analytics', icon: <BarChart2 size={20} />, disabled: true },
+    { title: 'Аналитика', path: '/analytics', icon: <BarChart2 size={20} /> },
     { title: 'Пользователи', path: '/users', icon: <Users size={20} /> },
   ];
 
@@ -129,6 +132,26 @@ export const MainLayout = () => {
             </ListItem>
           );
         }) : null}
+
+        {isAdmin && (
+          <ListItem disablePadding sx={{ mb: 1 }}>
+            <ListItemButton
+              onClick={() => {
+                setInviteModalOpen(true);
+                if (!isDesktop) setMobileOpen(false);
+              }}
+              sx={{
+                borderRadius: '16px',
+                '&:hover': { bgcolor: alpha(muiTheme.palette.primary.main, 0.05) }
+              }}
+            >
+              <ListItemIcon sx={{ minWidth: 40 }}>
+                <LinkIcon size={20} />
+              </ListItemIcon>
+              <ListItemText primary="Инвайты" primaryTypographyProps={{ fontWeight: 500 }} />
+            </ListItemButton>
+          </ListItem>
+        )}
       </List>
 
       <Box sx={{ p: 2 }}>
@@ -250,6 +273,14 @@ export const MainLayout = () => {
           onClose={() => setProfileOpen(false)}
           user={me}
           onSave={() => {}}
+        />
+      )}
+
+      {/* Invite Modal */}
+      {inviteModalOpen && (
+        <InviteModal
+          open={inviteModalOpen}
+          onClose={() => setInviteModalOpen(false)}
         />
       )}
     </Box>

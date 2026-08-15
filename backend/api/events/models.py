@@ -25,6 +25,10 @@ class Location(models.Model):
     name = models.CharField(max_length=255, unique=True)
     def __str__(self): return self.name
 
+class EventRole(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    def __str__(self): return self.name
+
 class InviteCode(models.Model):
     code = models.CharField(max_length=20, unique=True)
     role = models.CharField(max_length=20, choices=User.ROLE_CHOICES, default='ORGANIZER')
@@ -173,6 +177,7 @@ class Event(models.Model):
     document_link = models.URLField(max_length=1000, blank=True, null=True)
     result_link = models.URLField(max_length=1000, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    participant_details = models.JSONField(default=dict, blank=True)
 
 class EventTemplate(models.Model):
     name = models.CharField(max_length=100)

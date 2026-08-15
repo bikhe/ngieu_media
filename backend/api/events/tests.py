@@ -418,3 +418,44 @@ class MediaExchangeTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('Недостаточно доступного оборудования', str(response.data))
 
+    def test_event_roles_endpoint_accessible(self):
+        """Regression test: Dashboard crashed because event-roles/ returned 404/error."""
+        from .models import EventRole
+        EventRole.objects.create(name='Фотограф')
+        EventRole.objects.create(name='Видеограф')
+
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.get('/api/event-roles/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Should return a list (paginated or not)
+        data = response.data.get('results', response.data) if isinstance(response.data, dict) else response.data
+        self.assertGreaterEqual(len(data), 2)
+
+    def test_media_users_filter(self):
+        """Regression test: Dashboard crashed because users/?role=MEDIA failed."""
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.get('/api/users/', {'role': 'MEDIA'})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.data.get('results', response.data) if isinstance(response.data, dict) else response.data
+        # media1 and media2 are MEDIA users created in setUp
+        media_usernames = [u['username'] for u in data]
+        self.assertIn('media1', media_usernames)
+        self.assertIn('media2', media_usernames)
+
+    def test_user_serializer_excludes_password(self):
+        """Security test: UserSerializer must never return password hash."""
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.get(f'/api/users/{self.media1.id}/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn('password', response.data)
+
+    def test_user_me_returns_features(self):
+        """Test that /users/me/ includes feature toggles."""
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.get('/api/users/me/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('features', response.data)
+        self.assertIn('equipment_booking', response.data['features'])
+        self.assertIn('event_chat', response.data['features'])
+
+

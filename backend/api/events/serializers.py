@@ -25,6 +25,11 @@ class LocationSerializer(serializers.ModelSerializer):
         model = Location
         fields = '__all__'
 
+class EventRoleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EventRole
+        fields = '__all__'
+
 class EquipmentSerializer(serializers.ModelSerializer):
     available_quantity = serializers.ReadOnlyField()
     class Meta:
@@ -52,6 +57,7 @@ class EventSerializer(serializers.ModelSerializer):
     location_ids = serializers.PrimaryKeyRelatedField(
         queryset=Location.objects.all(), source='locations', many=True, write_only=True, required=False
     )
+    participant_details = serializers.JSONField(required=False)
     class Meta: model = Event; fields = '__all__'
 
     def validate(self, attrs):

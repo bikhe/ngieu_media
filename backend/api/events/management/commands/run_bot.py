@@ -35,12 +35,18 @@ class Command(BaseCommand):
             
             webapp_url = getattr(settings, 'TELEGRAM_WEBAPP_URL', 'http://localhost:5173')
             
-            # Build inline keyboard with Web App button
+            # Build inline keyboard (Telegram Web Apps require HTTPS)
             builder = InlineKeyboardBuilder()
-            builder.button(
-                text="🚀 Открыть Биржу СМИ",
-                web_app=types.WebAppInfo(url=webapp_url)
-            )
+            if webapp_url.startswith('https://'):
+                builder.button(
+                    text="🚀 Открыть Биржу СМИ",
+                    web_app=types.WebAppInfo(url=webapp_url)
+                )
+            else:
+                builder.button(
+                    text="🚀 Открыть Биржу СМИ",
+                    url=webapp_url
+                )
             markup = builder.as_markup()
 
             if user:
@@ -59,7 +65,13 @@ class Command(BaseCommand):
                     f"а затем введи инвайт-код, предоставленный администратором."
                 )
 
-            await message.answer(text, reply_markup=markup, parse_mode="HTML")
+            try:
+                from aiogram.exceptions import TelegramBadRequest
+                await message.answer(text, reply_markup=markup, parse_mode="HTML")
+            except Exception as e:
+                # Если URL-кнопки невалиден для Telegram (например http://localhost)
+                text += "\n\n<i>⚠️ Кнопка недоступна: для локальной разработки используйте ngrok и пропишите HTTPS-адрес в TELEGRAM_WEBAPP_URL.</i>"
+                await message.answer(text, parse_mode="HTML")
 
         @dp.message(Command("password"))
         async def cmd_password(message: types.Message):

@@ -44,4 +44,9 @@ class Migration(migrations.Migration):
             name='locations',
             field=models.ManyToManyField(blank=True, related_name='events', to='events.location'),
         ),
+        migrations.AddField(
+            model_name='event',
+            name='description',
+            field=models.TextField(blank=True, null=True, verbose_name='Комментарий'),
+        ),
     ]

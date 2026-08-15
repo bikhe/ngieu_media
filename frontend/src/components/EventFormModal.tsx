@@ -14,11 +14,15 @@ interface EventFormModalProps {
 
 export const EventFormModal: React.FC<EventFormModalProps> = ({ open, onClose, eventId, onSave, equipmentList }) => {
   const [form, setForm] = useState({ 
-    title: '', date: '', time: '12:00', end_time: '14:00', deadline: '', location: '', 
+    title: '', date: '', time: '12:00', end_time: '14:00', deadline: '', location_ids: [] as number[], short_comment: '', 
     content_type: 'PHOTO', document_link: '', result_link: '',
     max_participants: 1, required_skill: 'ANY', equipment_ids: [] as number[] 
   });
   const [loading, setLoading] = useState(false);
+
+  const [locations, setLocations] = useState<any[]>([]);
+  const [createLocation, setCreateLocation] = useState({ open: false, name: '' });
+
   const [skills, setSkills] = useState<any[]>([]);
   const [templates, setTemplates] = useState<any[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<number | ''>('');
@@ -28,6 +32,7 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({ open, onClose, e
     if (open) {
       apiService.getSkills().then(res => setSkills(Array.isArray(res) ? res : res.results || []));
       apiService.getTemplates().then(res => setTemplates(Array.isArray(res) ? res : res.results || []));
+      apiService.getLocations().then(res => setLocations(Array.isArray(res) ? res : res.results || []));
     }
   }, [open]);
 
@@ -48,7 +53,7 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({ open, onClose, e
       }).finally(() => setLoading(false));
     } else if (open && !eventId) {
       setForm({ 
-        title: '', date: '', time: '12:00', end_time: '14:00', deadline: '', location: '', 
+        title: '', date: '', time: '12:00', end_time: '14:00', deadline: '', location_ids: [] as number[], short_comment: '', 
         content_type: 'PHOTO', document_link: '', result_link: '',
         max_participants: 1, required_skill: 'ANY', equipment_ids: [] 
       });
@@ -96,6 +101,23 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({ open, onClose, e
     }
   };
 
+  const handleCreateLocation = async () => {
+    if (!createLocation.name.trim()) return;
+    setLoading(true);
+    try {
+      const newLoc = await apiService.createLocation(createLocation.name);
+      setLocations([...locations, newLoc]);
+      setForm({...form, location_ids: [...form.location_ids, newLoc.id]});
+      setCreateLocation({ open: false, name: '' });
+      toast.success('Локация создана');
+    } catch (e) {
+      toast.error('Ошибка создания локации');
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" sx={{ '& .MuiDialog-paper': { borderRadius: '24px' } }}>
       <DialogTitle sx={{ fontWeight: 900 }}>{eventId ? 'Редактирование задачи' : 'Новая задача'}</DialogTitle>
@@ -124,7 +146,36 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({ open, onClose, e
           <TextField fullWidth type="time" label="Время окончания" slotProps={{ inputLabel: { shrink: true } }} value={form.end_time || ''} onChange={e => setForm({...form, end_time: e.target.value})} />
         </Stack>
         
-        <TextField fullWidth label="Локация" margin="normal" value={form.location} onChange={e => setForm({...form, location: e.target.value})} />
+        
+        <FormControl fullWidth margin="normal">
+          <InputLabel>Локации</InputLabel>
+          <Select
+            multiple
+            value={form.location_ids}
+            onChange={(e:any) => {
+              const values = e.target.value;
+              if (values.includes('CREATE_NEW')) {
+                setCreateLocation({ open: true, name: '' });
+              } else {
+                setForm({...form, location_ids: values});
+              }
+            }}
+            input={<OutlinedInput label="Локации" />}
+            renderValue={(selected) => (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                {selected.map((value: any) => (
+                  <Chip key={value} label={locations.find(loc => loc.id === value)?.name || value} size="small" />
+                ))}
+              </Box>
+            )}
+          >
+            <MenuItem value="CREATE_NEW" sx={{ color: 'primary.main', fontWeight: 'bold' }}>+ Создать новую</MenuItem>
+            {locations.map((loc) => (
+              <MenuItem key={loc.id} value={loc.id}>{loc.name}</MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+
         
         <Stack direction="row" spacing={2} sx={{ mt: 1 }}>
           <FormControl fullWidth>
@@ -195,6 +246,25 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({ open, onClose, e
         <Button onClick={onClose}>Отмена</Button>
         <Button variant="contained" onClick={handleSave} disabled={loading}>Сохранить</Button>
       </DialogActions>
+
+      {/* Создание локации */}
+      <Dialog open={createLocation.open} onClose={() => setCreateLocation({...createLocation, open: false})}>
+        <DialogTitle>Новая локация</DialogTitle>
+        <DialogContent>
+          <TextField 
+            autoFocus 
+            margin="dense" 
+            label="Название" 
+            fullWidth 
+            value={createLocation.name} 
+            onChange={e => setCreateLocation({...createLocation, name: e.target.value})} 
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreateLocation({...createLocation, open: false})}>Отмена</Button>
+          <Button onClick={handleCreateLocation} disabled={loading}>Создать</Button>
+        </DialogActions>
+      </Dialog>
     </Dialog>
   );
 };

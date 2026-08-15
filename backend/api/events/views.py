@@ -4,6 +4,9 @@ import hmac
 import hashlib
 import urllib.parse
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 from django.conf import settings
 from django.http import HttpResponse
 from django.utils.crypto import get_random_string
@@ -51,10 +54,16 @@ def verify_telegram_init_data(init_data: str, bot_token: str) -> dict | None:
         if calculated_hash != tg_hash:
             return None
             
+        # Reject init_data older than 24 hours (replay attack protection)
+        import time as time_module
+        auth_date = int(parsed_data.get('auth_date', '0'))
+        if time_module.time() - auth_date > 86400:
+            return None
+
         user_data = json.loads(parsed_data.get('user', '{}'))
         return user_data
     except Exception as e:
-        print("Telegram init data verification error:", e)
+        logger.error("Telegram init data verification error: %s", e)
         return None
 
 def send_tg_notification(chat_id, text, event_id=None, open_chat=False):
@@ -86,7 +95,7 @@ def send_tg_notification(chat_id, text, event_id=None, open_chat=False):
     try:
         requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", json=payload, timeout=2)
     except Exception as e:
-        print("Failed to send telegram notification:", e)
+        logger.warning("Failed to send telegram notification: %s", e)
 
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all().order_by('id')
@@ -122,7 +131,7 @@ class UserViewSet(viewsets.ModelViewSet):
             user = request.user
             user.first_name = request.data.get('first_name', user.first_name)
             user.last_name = request.data.get('last_name', user.last_name)
-            user.telegram_id = request.data.get('telegram_id', user.telegram_id)
+            # telegram_id removed from mass assignment — use /telegram/link/ endpoint instead
             user.save()
             return Response({'status': 'Профиль обновлен'})
 
@@ -156,6 +165,14 @@ class UserViewSet(viewsets.ModelViewSet):
                 return Response({'error': 'Старый пароль обязателен'}, status=status.HTTP_400_BAD_REQUEST)
             if not user.check_password(old_password):
                 return Response({'error': 'Неверный старый пароль'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Validate password strength
+        from django.contrib.auth.password_validation import validate_password
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        try:
+            validate_password(new_password, user=user)
+        except DjangoValidationError as e:
+            return Response({'error': ' '.join(e.messages)}, status=status.HTTP_400_BAD_REQUEST)
 
         user.set_password(new_password)
         user.save()
@@ -510,6 +527,14 @@ class EventViewSet(viewsets.ModelViewSet):
 
 
             event.media_participants.add(request.user)
+            location_id = request.data.get('location_id')
+            if location_id:
+                details = event.participant_details.copy() if event.participant_details else {}
+                user_details = details.get(str(request.user.id), {})
+                user_details['location_id'] = location_id
+                details[str(request.user.id)] = user_details
+                event.participant_details = details
+
             if ENABLE_EQUIPMENT_BOOKING:
                 for eq in equipments:
                     event.booked_equipment.add(eq)
@@ -527,6 +552,73 @@ class EventViewSet(viewsets.ModelViewSet):
             event.save()
             if event.responsible_person.telegram_id: send_tg_notification(event.responsible_person.telegram_id, f"✅ Взяли вашу съемку '{event.title}'!", event_id=event.id)
         return Response({'status': 'Успех'})
+
+    @action(detail=True, methods=['post'])
+    def assign_participant(self, request, pk=None):
+        if request.user.role not in ['MAIN_ADMIN', 'ORGANIZER']:
+            return Response({'error': 'Только админы и организаторы могут назначать участников'}, status=403)
+        
+        with transaction.atomic():
+            event = self.get_object()
+            user_id = request.data.get('user_id')
+            role_id = request.data.get('role_id')
+            location_id = request.data.get('location_id')
+            
+            try:
+                user = User.objects.get(id=user_id, role='MEDIA')
+            except User.DoesNotExist:
+                return Response({'error': 'Пользователь не найден или не является СМИ'}, status=400)
+                
+            event.media_participants.add(user)
+            
+            details = event.participant_details.copy() if event.participant_details else {}
+            user_details = details.get(str(user.id), {})
+            if role_id:
+                user_details['role_id'] = role_id
+            if location_id:
+                user_details['location_id'] = location_id
+            
+            details[str(user.id)] = user_details
+            event.participant_details = details
+            
+            if event.status == 'OPEN':
+                event.status = 'IN_PROGRESS'
+            event.save()
+            
+            if user.telegram_id:
+                send_tg_notification(user.telegram_id, f"📝 Вас назначили на мероприятие '{event.title}'!", event_id=event.id)
+                
+            return Response({'status': 'Участник назначен'})
+
+    @action(detail=True, methods=['post'])
+    def remove_participant(self, request, pk=None):
+        if request.user.role not in ['MAIN_ADMIN', 'ORGANIZER']:
+            return Response({'error': 'Только админы и организаторы могут удалять участников'}, status=403)
+        
+        with transaction.atomic():
+            event = self.get_object()
+            user_id = request.data.get('user_id')
+            
+            try:
+                user = User.objects.get(id=user_id)
+            except User.DoesNotExist:
+                return Response({'error': 'Пользователь не найден'}, status=400)
+                
+            event.media_participants.remove(user)
+            
+            if event.participant_details and str(user.id) in event.participant_details:
+                details = event.participant_details.copy()
+                del details[str(user.id)]
+                event.participant_details = details
+                
+            if event.media_participants.count() == 0 and event.status == 'IN_PROGRESS':
+                event.status = 'OPEN'
+            event.save()
+            
+            if user.telegram_id:
+                send_tg_notification(user.telegram_id, f"❌ Вас сняли с мероприятия '{event.title}'", event_id=event.id)
+                
+            return Response({'status': 'Участник удален'})
 
     @action(detail=True, methods=['post'])
     def submit_work(self, request, pk=None):
@@ -586,6 +678,12 @@ class RegisterView(viewsets.ViewSet):
             return Response({'error': 'Укажите логин и пароль'}, status=400)
         if User.objects.filter(username=username).exists():
             return Response({'error': 'Пользователь с таким именем уже существует'}, status=400)
+        from django.contrib.auth.password_validation import validate_password
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        try:
+            validate_password(password)
+        except DjangoValidationError as e:
+            return Response({'error': ' '.join(e.messages)}, status=status.HTTP_400_BAD_REQUEST)
         User.objects.create_user(username=username, password=password, role=invite.role)
         invite.is_used = True; invite.save()
         return Response({'status': 'ok'})
@@ -819,8 +917,20 @@ class LocationViewSet(viewsets.ModelViewSet):
     def check_permissions(self, request):
         super().check_permissions(request)
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            if request.user.role != 'MAIN_ADMIN' and not getattr(request.user, 'can_manage_warehouse', False):
+            if request.user.role != 'MAIN_ADMIN':
                 raise PermissionDenied("У вас нет прав для управления локациями.")
+
+class EventRoleViewSet(viewsets.ModelViewSet):
+    queryset = EventRole.objects.all()
+    serializer_class = EventRoleSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = OptionalPageNumberPagination
+
+    def check_permissions(self, request):
+        super().check_permissions(request)
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            if request.user.role != 'MAIN_ADMIN':
+                raise PermissionDenied("У вас нет прав для управления ролями.")
 
 class UpdatesView(APIView):
     permission_classes = [AllowAny]

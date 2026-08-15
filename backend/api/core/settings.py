@@ -15,7 +15,7 @@ load_dotenv(BASE_DIR / '.env')
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv('SECRET_KEY', 'set-your-strong-secret-password-here')
+SECRET_KEY = os.environ['SECRET_KEY']  # REQUIRED — fail fast if not set
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG', 'False').lower() in ('true', '1', 't')
@@ -92,7 +92,7 @@ else:
             'ENGINE': 'django.contrib.gis.db.backends.postgis',
             'NAME': os.getenv('DB_NAME', 'events_db'),
             'USER': os.getenv('DB_USER', 'events_user'),
-            'PASSWORD': os.getenv('DB_PASSWORD', 'Set-Your-Password'),
+            'PASSWORD': os.environ['DB_PASSWORD'],  # REQUIRED — fail fast if not set
             'HOST': os.getenv('DB_HOST', 'db'),
             'PORT': os.getenv('DB_PORT', '5432'),
         }
@@ -144,7 +144,7 @@ MEDIA_ROOT = BASE_DIR / 'media'
 AUTH_USER_MODEL = 'events.User'
 
 # Настройки CORS (чтобы React и Flutter могли делать запросы)
-CORS_ALLOW_ALL_ORIGINS = os.getenv('CORS_ALLOW_ALL_ORIGINS', 'True').lower() in ('true', '1', 't')
+CORS_ALLOW_ALL_ORIGINS = os.getenv('CORS_ALLOW_ALL_ORIGINS', 'False').lower() in ('true', '1', 't')  # Secure default: deny all origins unless explicitly enabled
 CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', 'https://admin.pivas.su,https://mobile.pivas.su').split(',')
 
 # Настройки доверенных источников для CSRF (необходимо для Django Admin по HTTPS)
@@ -167,6 +167,8 @@ SIMPLE_JWT = {
     'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
 }
 
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
 # Интеграция с Telegram
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', 'ТВОЙ_ТОКЕН_ИЗ_BOTFATHER')
 TELEGRAM_WEBAPP_URL = os.getenv('TELEGRAM_WEBAPP_URL', 'http://localhost:5173')
@@ -187,7 +189,3 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
-
-# Настройки Meilisearch
-MEILI_HOST = os.getenv('MEILI_HOST', 'http://meilisearch:7700')
-MEILI_MASTER_KEY = os.getenv('MEILI_MASTER_KEY', 'dev_master_key')

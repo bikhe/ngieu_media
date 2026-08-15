@@ -9,11 +9,13 @@ import redis.asyncio as redis
 
 app = FastAPI()
 
+ALLOWED_ORIGINS = os.environ.get("CORS_ALLOWED_ORIGINS", "https://admin.pivas.su,https://mobile.pivas.su").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET"],
     allow_headers=["*"],
 )
 
@@ -24,14 +26,17 @@ BACKEND_URL = os.environ.get("BACKEND_URL", "http://backend:8000")
 KEEPALIVE_INTERVAL = 20
 
 
-async def event_generator(request: Request, since_id: int):
+async def event_generator(request: Request, since_id: int, token: str = None):
     # Send retry directive: client waits 5s before reconnecting (default is ~3s)
     yield {"event": "message", "retry": 5000, "data": json.dumps({"type": "connected"})}
 
     # 1. Fetch missed logs from Django backend first
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.get(f"{BACKEND_URL}/api/updates/?since_id={since_id}", timeout=10)
+            url = f"{BACKEND_URL}/api/updates/?since_id={since_id}"
+            if token:
+                url += f"&token={token}"
+            resp = await client.get(url, timeout=10)
             if resp.status_code == 200:
                 data = resp.json()
                 logs = data.get('logs', [])
@@ -90,6 +95,6 @@ async def event_generator(request: Request, since_id: int):
 
 
 @app.get("/stream")
-async def sse_stream(request: Request, since_id: int = 0):
-    return EventSourceResponse(event_generator(request, since_id), ping=0)
+async def sse_stream(request: Request, since_id: int = 0, token: str = None):
+    return EventSourceResponse(event_generator(request, since_id, token), ping=0)
 

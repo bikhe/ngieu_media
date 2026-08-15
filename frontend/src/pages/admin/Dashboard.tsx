@@ -3,7 +3,7 @@ import { Box, Container, Typography, Card, Button, AppBar, Toolbar, Avatar, Icon
 import { useNavigate } from 'react-router-dom';
 import { format, parseISO } from 'date-fns';
 import toast, { Toaster } from 'react-hot-toast';
-import { Brightness4 as Brightness4Icon, Brightness7 as Brightness7Icon, Edit as EditIcon, Delete as DeleteIcon, Chat as ChatIcon, Send as SendIcon, Inventory2 as Inventory2Icon, MilitaryTech as MilitaryTechIcon, Link as LinkIcon, Timer as TimerIcon, ViewList as ViewListIcon, CalendarMonth as CalendarIcon, Palette as PaletteIcon, ExpandMore as ExpandMoreIcon } from '@mui/icons-material';
+import { Brightness4 as Brightness4Icon, Brightness7 as Brightness7Icon, Edit as EditIcon, Delete as DeleteIcon, Chat as ChatIcon, Send as SendIcon, Inventory2 as Inventory2Icon, MilitaryTech as MilitaryTechIcon, Link as LinkIcon, Timer as TimerIcon, ViewList as ViewListIcon, CalendarMonth as CalendarIcon, Palette as PaletteIcon, ExpandMore as ExpandMoreIcon, Description as DescriptionIcon } from '@mui/icons-material';
 
 import api from '../../services/api';
 import { useUpdatesBroker } from '../../services/useUpdatesBroker';
@@ -18,6 +18,12 @@ const Dashboard = () => {
   const [events, setEvents] = useState<any[]>([]);
   const [equipment, setEquipment] = useState<any[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
+  const [eventRoles, setEventRoles] = useState<any[]>([]);
+  const [mediaUsers, setMediaUsers] = useState<any[]>([]);
+  const [createLocation, setCreateLocation] = useState({ open: false, name: '' });
+  const [createRole, setCreateRole] = useState({ open: false, name: '' });
+  const [assignModal, setAssignModal] = useState({ open: false, eventId: null as any, user_id: '', role_id: '', location_id: '' });
+
   const [user, setUser] = useState<any>(null);
   const [features, setFeatures] = useState<any>({});
   const [tab, setTab] = useState('ALL');
@@ -58,11 +64,13 @@ const Dashboard = () => {
       if (tab !== 'ALL') {
         params.status = tab;
       }
-      const [e, u, eq, loc] = await Promise.all([
+      const [e, u, eq, loc, rls, m_users] = await Promise.all([
         api.get('events/', { params }), 
         api.get('users/me/'),
         api.get('equipment/'), // Тянем список техники
-        api.get('locations/') // Тянем список локаций
+        api.get('locations/'), // Тянем список локаций
+        api.get('event-roles/'), // Тянем список ролей
+        api.get('users/', { params: { role: 'MEDIA' } }) // Тянем список СМИ
       ]);
       if (e.data.results !== undefined) {
         setEvents(e.data.results);
@@ -73,8 +81,10 @@ const Dashboard = () => {
       }
       setUser(u.data); 
       setFeatures(u.data.features || {});
-      setEquipment(eq.data);
+      setEquipment(eq.data.results !== undefined ? eq.data.results : eq.data);
       setLocations(loc.data.results !== undefined ? loc.data.results : loc.data);
+      setEventRoles(rls.data.results !== undefined ? rls.data.results : rls.data);
+      setMediaUsers(m_users.data.results !== undefined ? m_users.data.results : m_users.data);
       
       setProfileForm({ first_name: u.data.first_name || '', last_name: u.data.last_name || '', telegram_id: u.data.telegram_id || '' });
       if (u.data.role === 'MAIN_ADMIN') setInvites((await api.get('invites/')).data);
@@ -128,6 +138,49 @@ const Dashboard = () => {
     setNewComment(''); loadChat(chatModal.eventId);
   };
 
+    const handleCreateLocation = async () => {
+    try {
+      const res = await api.post('locations/', { name: createLocation.name });
+      setLocations([...locations, res.data]);
+      setForm({...form, location_ids: [...form.location_ids, res.data.id]});
+      setCreateLocation({ open: false, name: '' });
+      toast.success("Локация создана");
+    } catch { toast.error("Ошибка"); }
+  };
+  
+  const handleCreateRole = async () => {
+    try {
+      const res = await api.post('event-roles/', { name: createRole.name });
+      setEventRoles([...eventRoles, res.data]);
+      setAssignModal({...assignModal, role_id: res.data.id});
+      setCreateRole({ open: false, name: '' });
+      toast.success("Роль создана");
+    } catch { toast.error("Ошибка"); }
+  };
+  
+  const handleAssignSubmit = async () => {
+    try {
+      if (!assignModal.user_id) return toast.error("Выберите пользователя");
+      await api.post(`events/${assignModal.eventId}/assign_participant/`, {
+        user_id: assignModal.user_id,
+        role_id: assignModal.role_id || undefined,
+        location_id: assignModal.location_id || undefined
+      });
+      toast.success("Участник назначен");
+      setAssignModal({ open: false, eventId: null, user_id: '', role_id: '', location_id: '' });
+      loadData();
+    } catch { toast.error("Ошибка назначения"); }
+  };
+  
+  const handleRemoveParticipant = async (eventId: number, userId: number) => {
+    if (!window.confirm("Снять участника с задачи?")) return;
+    try {
+      await api.post(`events/${eventId}/remove_participant/`, { user_id: userId });
+      toast.success("Участник снят");
+      loadData();
+    } catch { toast.error("Ошибка"); }
+  };
+
   const handleProfileSave = async () => {
     try {
       if (changePassOpen) {
@@ -162,9 +215,9 @@ const Dashboard = () => {
 
 
       <Container maxWidth="lg" sx={{ pt: 2 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
+        <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, justifyContent: 'space-between', alignItems: { xs: 'flex-start', sm: 'center' }, gap: 2, mb: 4 }}>
           <Typography variant="h4" sx={{ fontWeight: 900 }}>Мероприятия</Typography>
-          <Box sx={{ display: 'flex', flexDirection: 'row', gap: 2, alignItems: 'center' }}>
+          <Box sx={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
             <ToggleButtonGroup
               value={viewMode}
               exclusive
@@ -181,20 +234,8 @@ const Dashboard = () => {
             </ToggleButtonGroup>
 
             {(isAdmin || user?.role === 'ORGANIZER') && (
-              <Stack direction="row" spacing={1}>
-                {isAdmin && (
-                  <Button variant="outlined" color="secondary" onClick={async () => {
-                    try {
-                      const res = await api.post('invites/generate/', { role: 'MEDIA' });
-                      navigator.clipboard.writeText(res.data.code);
-                      toast.success('Инвайт для СМИ скопирован: ' + res.data.code);
-                    } catch (e) {
-                      toast.error('Ошибка при генерации кода');
-                    }
-                  }}>
-                    + Инвайт СМИ
-                  </Button>
-                )}
+              <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
+
                 <Button variant="outlined" disabled title="В разработке" sx={{ opacity: 0.6 }}>
                   Импорт
                 </Button>
@@ -295,25 +336,40 @@ const Dashboard = () => {
                         <Chip icon={<MilitaryTechIcon />} label={skillLabel} size="small" variant="outlined" color={event.required_skill !== 'ANY' ? 'secondary' : 'default'} sx={{ height: 24, fontSize: '0.7rem' }} />
                         <Chip label={`👥 ${event.media_participants?.length || 0} / ${event.max_participants}`} size="small" variant="outlined" sx={{ height: 24, fontSize: '0.7rem' }} />
                       </Stack>
-                      {event.media_participants?.length > 0 && (
-                        <Box sx={{ display: 'flex', gap: 0.5, mb: 1.5, flexWrap: 'wrap' }}>
-                          {event.media_participants.map((p: any) => {
-                            const fullName = `${p.first_name || ''} ${p.last_name || ''}`.trim() || p.username;
-                            const title = p.phone_number ? `${fullName} (${p.phone_number})` : fullName;
-                            return (
-                              <Tooltip key={p.id} title={title}>
-                                <Chip
-                                  avatar={<Avatar sx={{ width: 24, height: 24, fontSize: '0.7rem' }}>{p.username.charAt(0).toUpperCase()}</Avatar>}
-                                  label={fullName}
-                                  size="small"
-                                  variant="outlined"
-                                  sx={{ height: 26, borderRadius: 13 }}
-                                />
-                              </Tooltip>
-                            );
-                          })}
-                        </Box>
-                      )}
+                      
+                      <Box sx={{ display: 'flex', gap: 0.5, mb: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
+                        {event.media_participants?.map((p: any) => {
+                          const fullName = `${p.first_name || ''} ${p.last_name || ''}`.trim() || p.username;
+                          let title = p.phone_number ? `${fullName} (${p.phone_number})` : fullName;
+                          const details = event.participant_details?.[p.id.toString()] || {};
+                          const role = eventRoles.find(r => r.id === details.role_id)?.name;
+                          const loc = locations.find(l => l.id === details.location_id)?.name;
+                          if (role || loc) title += ` [${role || 'СМИ'}${loc ? ` - ${loc}` : ''}]`;
+                          return (
+                            <Tooltip key={p.id} title={title}>
+                              <Chip
+                                avatar={<Avatar sx={{ width: 24, height: 24, fontSize: '0.7rem' }}>{p.username.charAt(0).toUpperCase()}</Avatar>}
+                                label={`${fullName}${role ? ` (${role})` : ''}`}
+                                size="small"
+                                variant="outlined"
+                                onDelete={isAdmin ? () => handleRemoveParticipant(event.id, p.id) : undefined}
+                                sx={{ height: 26, borderRadius: 13 }}
+                              />
+                            </Tooltip>
+                          );
+                        })}
+                        {(isAdmin || user?.role === 'ORGANIZER') && (event.media_participants?.length || 0) < event.max_participants && (
+                          <Chip 
+                            label="+ СМИ" 
+                            size="small" 
+                            color="primary" 
+                            variant="outlined" 
+                            onClick={() => setAssignModal({ open: true, eventId: event.id, user_id: '', role_id: '', location_id: '' })} 
+                            sx={{ height: 26, borderRadius: 13, cursor: 'pointer', borderStyle: 'dashed' }} 
+                          />
+                        )}
+                      </Box>
+
 
                       {event.booked_equipment?.length > 0 && (
                         <Box sx={{ mb: 1.5 }}>
@@ -331,22 +387,43 @@ const Dashboard = () => {
                             {event.responsible_person?.phone_number && ` (${event.responsible_person.phone_number})`}
                           </Typography>
                           <Stack direction="row" spacing={0.5}>
+                            {event.document_link && (
+                              <Tooltip title="ТЗ / Сценарий">
+                                <IconButton
+                                  size="small"
+                                  onClick={() => {
+                                    event.document_link.trim().split(/\s+/).forEach((link: string) => {
+                                      if (link) {
+                                        const target = /^https?:\/\//i.test(link) ? link : `https://${link}`;
+                                        window.open(target, '_blank');
+                                      }
+                                    });
+                                  }}
+                                  color="info"
+                                  sx={{ p: 0.5 }}
+                                >
+                                  <DescriptionIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
                             {event.result_link && (
-                              <IconButton
-                                size="small"
-                                onClick={() => {
-                                  event.result_link.trim().split(/\s+/).forEach((link: string) => {
-                                    if (link) {
-                                      const target = /^https?:\/\//i.test(link) ? link : `https://${link}`;
-                                      window.open(target, '_blank');
-                                    }
-                                  });
-                                }}
-                                color="success"
-                                sx={{ p: 0.5 }}
-                              >
-                                <LinkIcon fontSize="small" />
-                              </IconButton>
+                              <Tooltip title="Результат">
+                                <IconButton
+                                  size="small"
+                                  onClick={() => {
+                                    event.result_link.trim().split(/\s+/).forEach((link: string) => {
+                                      if (link) {
+                                        const target = /^https?:\/\//i.test(link) ? link : `https://${link}`;
+                                        window.open(target, '_blank');
+                                      }
+                                    });
+                                  }}
+                                  color="success"
+                                  sx={{ p: 0.5 }}
+                                >
+                                  <LinkIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
                             )}
                             <IconButton size="small" onClick={() => {setChatModal({open: true, eventId: event.id}); loadChat(event.id);}} sx={{ p: 0.5 }}><ChatIcon fontSize="small" /></IconButton>
                           </Stack>
@@ -421,25 +498,40 @@ const Dashboard = () => {
                       <Chip icon={<MilitaryTechIcon />} label={skillLabel} size="small" variant="outlined" color={event.required_skill !== 'ANY' ? 'secondary' : 'default'} sx={{ height: 24, fontSize: '0.7rem' }} />
                       <Chip label={`👥 ${event.media_participants?.length || 0} / ${event.max_participants}`} size="small" variant="outlined" sx={{ height: 24, fontSize: '0.7rem' }} />
                     </Stack>
-                    {event.media_participants?.length > 0 && (
-                      <Box sx={{ display: 'flex', gap: 0.5, mb: 1.5, flexWrap: 'wrap' }}>
-                        {event.media_participants.map((p: any) => {
+                    
+                      <Box sx={{ display: 'flex', gap: 0.5, mb: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
+                        {event.media_participants?.map((p: any) => {
                           const fullName = `${p.first_name || ''} ${p.last_name || ''}`.trim() || p.username;
-                          const title = p.phone_number ? `${fullName} (${p.phone_number})` : fullName;
+                          let title = p.phone_number ? `${fullName} (${p.phone_number})` : fullName;
+                          const details = event.participant_details?.[p.id.toString()] || {};
+                          const role = eventRoles.find(r => r.id === details.role_id)?.name;
+                          const loc = locations.find(l => l.id === details.location_id)?.name;
+                          if (role || loc) title += ` [${role || 'СМИ'}${loc ? ` - ${loc}` : ''}]`;
                           return (
                             <Tooltip key={p.id} title={title}>
                               <Chip
                                 avatar={<Avatar sx={{ width: 24, height: 24, fontSize: '0.7rem' }}>{p.username.charAt(0).toUpperCase()}</Avatar>}
-                                label={fullName}
+                                label={`${fullName}${role ? ` (${role})` : ''}`}
                                 size="small"
                                 variant="outlined"
+                                onDelete={isAdmin ? () => handleRemoveParticipant(event.id, p.id) : undefined}
                                 sx={{ height: 26, borderRadius: 13 }}
                               />
                             </Tooltip>
                           );
                         })}
+                        {(isAdmin || user?.role === 'ORGANIZER') && (event.media_participants?.length || 0) < event.max_participants && (
+                          <Chip 
+                            label="+ СМИ" 
+                            size="small" 
+                            color="primary" 
+                            variant="outlined" 
+                            onClick={() => setAssignModal({ open: true, eventId: event.id, user_id: '', role_id: '', location_id: '' })} 
+                            sx={{ height: 26, borderRadius: 13, cursor: 'pointer', borderStyle: 'dashed' }} 
+                          />
+                        )}
                       </Box>
-                    )}
+
 
                     {event.booked_equipment?.length > 0 && (
                       <Box sx={{ mb: 1.5 }}>
@@ -457,22 +549,43 @@ const Dashboard = () => {
                           {event.responsible_person?.phone_number && ` (${event.responsible_person.phone_number})`}
                         </Typography>
                         <Stack direction="row" spacing={0.5}>
+                          {event.document_link && (
+                            <Tooltip title="ТЗ / Сценарий">
+                              <IconButton
+                                size="small"
+                                onClick={() => {
+                                  event.document_link.trim().split(/\s+/).forEach((link: string) => {
+                                    if (link) {
+                                      const target = /^https?:\/\//i.test(link) ? link : `https://${link}`;
+                                      window.open(target, '_blank');
+                                    }
+                                  });
+                                }}
+                                color="info"
+                                sx={{ p: 0.5 }}
+                              >
+                                <DescriptionIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          )}
                           {event.result_link && (
-                            <IconButton
-                              size="small"
-                              onClick={() => {
-                                event.result_link.trim().split(/\s+/).forEach((link: string) => {
-                                  if (link) {
-                                    const target = /^https?:\/\//i.test(link) ? link : `https://${link}`;
-                                    window.open(target, '_blank');
-                                  }
-                                });
-                              }}
-                              color="success"
-                              sx={{ p: 0.5 }}
-                            >
-                              <LinkIcon fontSize="small" />
-                            </IconButton>
+                            <Tooltip title="Результат">
+                              <IconButton
+                                size="small"
+                                onClick={() => {
+                                  event.result_link.trim().split(/\s+/).forEach((link: string) => {
+                                    if (link) {
+                                      const target = /^https?:\/\//i.test(link) ? link : `https://${link}`;
+                                      window.open(target, '_blank');
+                                    }
+                                  });
+                                }}
+                                color="success"
+                                sx={{ p: 0.5 }}
+                              >
+                                <LinkIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
                           )}
                           <IconButton size="small" onClick={() => {setChatModal({open: true, eventId: event.id}); loadChat(event.id);}} sx={{ p: 0.5 }}><ChatIcon fontSize="small" /></IconButton>
                         </Stack>
@@ -510,6 +623,7 @@ const Dashboard = () => {
         <DialogTitle sx={{ fontWeight: 900 }}>{modal.id ? 'Редактирование задачи' : 'Новая задача'}</DialogTitle>
         <DialogContent dividers>
           <TextField fullWidth label="Название" margin="dense" value={form.title} onChange={e => setForm({...form, title: e.target.value})} />
+          <TextField fullWidth label="Краткий комментарий" margin="dense" value={form.short_comment} onChange={e => setForm({...form, short_comment: e.target.value})} helperText="Кратко для карточки мероприятия" />
           <Stack direction="row" spacing={2} sx={{ mt: 1 }}>
             <TextField fullWidth type="date" label="Дата" slotProps={{ inputLabel: { shrink: true } }} value={form.date} onChange={e => setForm({...form, date: e.target.value})} />
             <TextField fullWidth type="time" label="Время начала" slotProps={{ inputLabel: { shrink: true } }} value={form.time} onChange={e => setForm({...form, time: e.target.value})} />
@@ -518,10 +632,17 @@ const Dashboard = () => {
 
           <FormControl fullWidth sx={{ mt: 2, mb: 1 }}>
             <InputLabel>Локации</InputLabel>
-            <Select
+                        <Select
               multiple
               value={form.location_ids}
-              onChange={(e:any) => setForm({...form, location_ids: e.target.value})}
+              onChange={(e:any) => {
+                const values = e.target.value;
+                if (values.includes('CREATE_NEW')) {
+                  setCreateLocation({ open: true, name: '' });
+                } else {
+                  setForm({...form, location_ids: values});
+                }
+              }}
               input={<OutlinedInput label="Локации" />}
               renderValue={(selected) => (
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
@@ -531,26 +652,19 @@ const Dashboard = () => {
                 </Box>
               )}
             >
+              <MenuItem value="CREATE_NEW" sx={{ color: 'primary.main', fontWeight: 'bold' }}>+ Создать новую</MenuItem>
               {locations.map((loc) => (
                 <MenuItem key={loc.id} value={loc.id}>{loc.name}</MenuItem>
               ))}
             </Select>
           </FormControl>
           
-          <Stack direction="row" spacing={2} sx={{ mt: 1 }}>
-            <FormControl fullWidth>
-              <InputLabel>Тип контента</InputLabel>
-              <Select value={form.content_type} label="Тип контента" onChange={e => setForm({...form, content_type: e.target.value})}>
-                <MenuItem value="PHOTO">Фото</MenuItem><MenuItem value="VIDEO">Видео</MenuItem><MenuItem value="ALL">Всё вместе</MenuItem>
-              </Select>
-            </FormControl>
-            <FormControl fullWidth>
-              <InputLabel>Нужный навык</InputLabel>
-              <Select value={form.required_skill} label="Нужный навык" onChange={e => setForm({...form, required_skill: e.target.value})}>
-                <MenuItem value="ANY">Любой</MenuItem><MenuItem value="PRO">Только PRO</MenuItem><MenuItem value="VIDEO">Видеограф</MenuItem><MenuItem value="DRONE">Пилот дрона</MenuItem>
-              </Select>
-            </FormControl>
-          </Stack>
+          <FormControl fullWidth sx={{ mt: 1 }}>
+            <InputLabel>Тип контента</InputLabel>
+            <Select value={form.content_type} label="Тип контента" onChange={e => setForm({...form, content_type: e.target.value})}>
+              <MenuItem value="PHOTO">Фото</MenuItem><MenuItem value="VIDEO">Видео</MenuItem><MenuItem value="ALL">Всё вместе</MenuItem>
+            </Select>
+          </FormControl>
 
           <TextField fullWidth type="number" label="Макс. участников" value={form.max_participants} onChange={e => setForm({...form, max_participants: parseInt(e.target.value)})} sx={{ mt: 2 }} />
 
@@ -560,7 +674,13 @@ const Dashboard = () => {
             </AccordionSummary>
             <AccordionDetails sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <TextField fullWidth type="datetime-local" label="Дедлайн сдачи (по умолчанию +7 дней)" slotProps={{ inputLabel: { shrink: true } }} value={form.deadline} onChange={e => setForm({...form, deadline: e.target.value})} />
-              <TextField fullWidth label="Краткий комментарий" value={form.short_comment} onChange={e => setForm({...form, short_comment: e.target.value})} helperText="Кратко для карточки мероприятия" />
+              
+              <FormControl fullWidth>
+                <InputLabel>Нужный навык</InputLabel>
+                <Select value={form.required_skill} label="Нужный навык" onChange={e => setForm({...form, required_skill: e.target.value})}>
+                  <MenuItem value="ANY">Любой</MenuItem><MenuItem value="PRO">Только PRO</MenuItem><MenuItem value="VIDEO">Видеограф</MenuItem><MenuItem value="DRONE">Пилот дрона</MenuItem>
+                </Select>
+              </FormControl>
               
               <FormControl fullWidth>
                 <InputLabel>Необходимая техника</InputLabel>
@@ -644,6 +764,67 @@ const Dashboard = () => {
           <Button onClick={() => setProfileModal(false)}>Отмена</Button>
           <Button variant="contained" onClick={handleProfileSave}>Сохранить</Button>
         </DialogActions>
+      </Dialog>
+
+      {/* МОДАЛКА НАЗНАЧЕНИЯ */}
+      <Dialog open={assignModal.open} onClose={() => setAssignModal({...assignModal, open: false})} fullWidth maxWidth="xs" sx={{ '& .MuiDialog-paper': { borderRadius: '24px' } }}>
+        <DialogTitle sx={{ fontWeight: 900 }}>Назначить СМИ</DialogTitle>
+        <DialogContent dividers>
+          <FormControl fullWidth margin="dense">
+            <InputLabel>Сотрудник</InputLabel>
+            <Select value={assignModal.user_id} label="Сотрудник" onChange={e => setAssignModal({...assignModal, user_id: e.target.value as any})}>
+              {mediaUsers.map(u => <MenuItem key={u.id} value={u.id}>{u.first_name || u.username} {u.last_name}</MenuItem>)}
+            </Select>
+          </FormControl>
+          <FormControl fullWidth margin="dense">
+            <InputLabel>Роль</InputLabel>
+            <Select 
+              value={assignModal.role_id} 
+              label="Роль" 
+              onChange={e => {
+                if (e.target.value === 'CREATE_NEW') setCreateRole({ open: true, name: '' });
+                else setAssignModal({...assignModal, role_id: e.target.value as any});
+              }}
+            >
+              <MenuItem value=""><em>Не назначена</em></MenuItem>
+              <MenuItem value="CREATE_NEW" sx={{ color: 'primary.main', fontWeight: 'bold' }}>+ Создать новую</MenuItem>
+              {eventRoles.map(r => <MenuItem key={r.id} value={r.id}>{r.name}</MenuItem>)}
+            </Select>
+          </FormControl>
+          <FormControl fullWidth margin="dense">
+            <InputLabel>Локация</InputLabel>
+            <Select 
+              value={assignModal.location_id} 
+              label="Локация" 
+              onChange={e => {
+                if (e.target.value === 'CREATE_NEW') setCreateLocation({ open: true, name: '' });
+                else setAssignModal({...assignModal, location_id: e.target.value as any});
+              }}
+            >
+              <MenuItem value=""><em>Любая</em></MenuItem>
+              <MenuItem value="CREATE_NEW" sx={{ color: 'primary.main', fontWeight: 'bold' }}>+ Создать новую</MenuItem>
+              {locations.map(l => <MenuItem key={l.id} value={l.id}>{l.name}</MenuItem>)}
+            </Select>
+          </FormControl>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setAssignModal({...assignModal, open: false})}>Отмена</Button>
+          <Button variant="contained" onClick={handleAssignSubmit}>Назначить</Button>
+        </DialogActions>
+      </Dialog>
+      
+      {/* Создание локации */}
+      <Dialog open={createLocation.open} onClose={() => setCreateLocation({...createLocation, open: false})}>
+        <DialogTitle>Новая локация</DialogTitle>
+        <DialogContent><TextField autoFocus margin="dense" label="Название" fullWidth value={createLocation.name} onChange={e => setCreateLocation({...createLocation, name: e.target.value})} /></DialogContent>
+        <DialogActions><Button onClick={() => setCreateLocation({...createLocation, open: false})}>Отмена</Button><Button onClick={handleCreateLocation}>Создать</Button></DialogActions>
+      </Dialog>
+      
+      {/* Создание роли */}
+      <Dialog open={createRole.open} onClose={() => setCreateRole({...createRole, open: false})}>
+        <DialogTitle>Новая роль</DialogTitle>
+        <DialogContent><TextField autoFocus margin="dense" label="Название" fullWidth value={createRole.name} onChange={e => setCreateRole({...createRole, name: e.target.value})} /></DialogContent>
+        <DialogActions><Button onClick={() => setCreateRole({...createRole, open: false})}>Отмена</Button><Button onClick={handleCreateRole}>Создать</Button></DialogActions>
       </Dialog>
     </Box>
   );

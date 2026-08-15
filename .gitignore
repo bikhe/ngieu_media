@@ -30,3 +30,6 @@ media_app/**/*.jks
 .vscode/
 .idea/
 deploy.md
+
+# Production secrets
+backend/api/.env.prod

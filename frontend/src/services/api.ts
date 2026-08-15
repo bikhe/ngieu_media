@@ -19,10 +19,13 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('access');
-      localStorage.removeItem('refresh');
-      // Reload page to redirect back to login state
-      window.location.reload();
+      const url = error.config?.url || '';
+      if (!url.includes('/token/') && !url.includes('/telegram/')) {
+        localStorage.removeItem('access');
+        localStorage.removeItem('refresh');
+        // Reload page to redirect back to login state
+        window.location.reload();
+      }
     }
     return Promise.reject(error);
   }
@@ -197,6 +200,38 @@ export const apiService = {
     }
   },
 
+  async getEventRoles(): Promise<any[]> {
+    const res = await api.get('/event-roles/');
+    return res.data.results || res.data;
+  },
+
+  async createEventRole(name: string): Promise<EventRole> {
+    const res = await api.post('/event-roles/', { name });
+    return res.data;
+  },
+
+  async getLocations(): Promise<any[]> {
+    const res = await api.get('/locations/');
+    return res.data.results || res.data;
+  },
+  async createLocation(name: string): Promise<any> {
+    const res = await api.post('/locations/', { name });
+    return res.data;
+  },
+
+  async getMediaUsers(): Promise<any[]> {
+    const res = await api.get('/users/', { params: { role: 'MEDIA' } });
+    return res.data.results || res.data;
+  },
+  async assignParticipant(eventId: number, data: { user_id: number; role_id?: number; location_id?: number }): Promise<any> {
+    const res = await api.post(`/events/${eventId}/assign_participant/`, data);
+    return res.data;
+  },
+  async removeParticipant(eventId: number, userId: number): Promise<any> {
+    const res = await api.post(`/events/${eventId}/remove_participant/`, { user_id: userId });
+    return res.data;
+  },
+
   async getLoans(): Promise<any> {
     const res = await api.get('/loans/');
     return res.data;
@@ -228,11 +263,11 @@ export const apiService = {
     }
   },
 
-  async takeTask(eventId: number, equipmentIds: number[]): Promise<{ success: boolean; error?: string }> {
+  async takeTask(eventId: number, equipmentIds: number[], locationId?: number): Promise<{ success: boolean; error?: string }> {
     try {
-      const res = await api.post(`/events/${eventId}/take_task/`, {
-        equipment_ids: equipmentIds,
-      });
+      const payload: any = { equipment_ids: equipmentIds };
+      if (locationId) payload.location_id = locationId;
+      const res = await api.post(`/events/${eventId}/take_task/`, payload);
       return { success: res.status === 200 };
     } catch (e: any) {
       const errorMsg = e.response?.data?.error || 'Не удалось записаться на задачу.';
