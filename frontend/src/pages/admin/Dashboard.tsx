@@ -1,53 +1,102 @@
-import React, { useEffect, useState, useContext, useCallback } from 'react';
-import { Box, Container, Typography, Card, Button, AppBar, Toolbar, Avatar, IconButton, Chip, Tabs, Tab, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Drawer, List, ListItem, ListItemText, Stack, Paper, MenuItem, Select, FormControl, InputLabel, OutlinedInput, Divider, Pagination, ToggleButton, ToggleButtonGroup, Accordion, AccordionSummary, AccordionDetails, Tooltip } from '@mui/material';
+import { useEffect, useState, useCallback } from 'react';
+import { Box, Container, Typography, Card, Button, Avatar, IconButton, Chip, Tabs, Tab, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Stack, Paper, MenuItem, Select, FormControl, InputLabel, OutlinedInput, Divider, Pagination, ToggleButton, ToggleButtonGroup, Accordion, AccordionSummary, AccordionDetails, Tooltip } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { format, parseISO } from 'date-fns';
 import toast, { Toaster } from 'react-hot-toast';
-import { Brightness4 as Brightness4Icon, Brightness7 as Brightness7Icon, Edit as EditIcon, Delete as DeleteIcon, Chat as ChatIcon, Send as SendIcon, Inventory2 as Inventory2Icon, MilitaryTech as MilitaryTechIcon, Link as LinkIcon, Timer as TimerIcon, ViewList as ViewListIcon, CalendarMonth as CalendarIcon, Palette as PaletteIcon, ExpandMore as ExpandMoreIcon, Description as DescriptionIcon } from '@mui/icons-material';
+import { Edit as EditIcon, Delete as DeleteIcon, Chat as ChatIcon, Send as SendIcon, Inventory2 as Inventory2Icon, Link as LinkIcon, Timer as TimerIcon, ViewList as ViewListIcon, CalendarMonth as CalendarIcon, ExpandMore as ExpandMoreIcon, Description as DescriptionIcon } from '@mui/icons-material';
 
 import api from '../../services/api';
+import type { Event, AppUser, Location as ApiLocation, Comment, Equipment } from '../../services/api';
 import { useUpdatesBroker } from '../../services/useUpdatesBroker';
-import { ThemeSettingsContext as ColorModeContext } from '../../theme/ThemeSettingsContext';
+import type { UpdateLog } from '../../services/useUpdatesBroker';
 import { CalendarView } from '../../components/CalendarView';
+import axios from 'axios';
+
+interface DashParticipant {
+  id: number;
+  username: string;
+  first_name?: string;
+  last_name?: string;
+  phone_number?: string;
+}
+
+interface DashParticipantDetails {
+  role_id?: number;
+  location_id?: number;
+}
+
+interface DashEvent extends Event {
+  responsible_person?: { id: number; username?: string; first_name?: string; last_name?: string; phone_number?: string } | null;
+  media_participants?: DashParticipant[];
+  participant_details?: Record<string, DashParticipantDetails>;
+  booked_equipment?: { id: number; name?: string }[];
+}
+
+interface EventRole {
+  id: number;
+  name: string;
+}
+
+interface Paginated<T> {
+  count: number;
+  results: T[];
+}
+
+interface EventFormPayload {
+  title: string;
+  date: string;
+  time: string;
+  end_time: string;
+  deadline: string | null;
+  location_ids: number[];
+  short_comment: string;
+  content_type: string;
+  document_link: string;
+  result_link: string;
+  max_participants: number;
+  equipment_ids: number[];
+}
+
+const getErrorMessage = (err: unknown, fallback: string): string => {
+  if (axios.isAxiosError(err)) {
+    const data = err.response?.data as { error?: string } | undefined;
+    return data?.error || fallback;
+  }
+  return fallback;
+};
 
 const Dashboard = () => {
-  const { mode, toggleColorMode, brandName, openSetup } = useContext(ColorModeContext);
   const navigate = useNavigate();
 
   const [loading, setLoading] = useState(true);
-  const [events, setEvents] = useState<any[]>([]);
-  const [equipment, setEquipment] = useState<any[]>([]);
-  const [locations, setLocations] = useState<any[]>([]);
-  const [eventRoles, setEventRoles] = useState<any[]>([]);
-  const [mediaUsers, setMediaUsers] = useState<any[]>([]);
+  const [events, setEvents] = useState<DashEvent[]>([]);
+  const [equipment, setEquipment] = useState<Equipment[]>([]);
+  const [locations, setLocations] = useState<ApiLocation[]>([]);
+  const [eventRoles, setEventRoles] = useState<EventRole[]>([]);
+  const [mediaUsers, setMediaUsers] = useState<AppUser[]>([]);
   const [createLocation, setCreateLocation] = useState({ open: false, name: '' });
   const [createRole, setCreateRole] = useState({ open: false, name: '' });
-  const [assignModal, setAssignModal] = useState({ open: false, eventId: null as any, user_id: '', role_id: '', location_id: '' });
+  const [assignModal, setAssignModal] = useState({ open: false, eventId: null as number | null, user_id: '' as string | number, role_id: '' as string | number, location_id: '' as string | number });
 
-  const [user, setUser] = useState<any>(null);
-  const [features, setFeatures] = useState<any>({});
+  const [user, setUser] = useState<AppUser | null>(null);
   const [tab, setTab] = useState('ALL');
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [invites, setInvites] = useState<any[]>([]);
-  const [inviteRole, setInviteRole] = useState('ORGANIZER');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const pageSize = 9;
+  const pageSize = 50;
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   
-  const [modal, setModal] = useState({ open: false, id: null as any });
-  
-  // Расширенная форма со всеми полями из БД
-  const [form, setForm] = useState({ 
-    title: '', date: '', time: '12:00', end_time: '14:00', deadline: '', location_ids: [] as number[], short_comment: '',
+  const [modal, setModal] = useState({ open: false, id: null as number | null });
+
+  const [form, setForm] = useState<EventFormPayload>({
+    title: '', date: '', time: '12:00', end_time: '14:00', deadline: '', location_ids: [], short_comment: '',
     content_type: 'PHOTO', document_link: '', result_link: '',
-    max_participants: 1, required_skill: 'ANY', equipment_ids: [] as number[] 
+    max_participants: 1, equipment_ids: []
   });
 
 
-  const [chatModal, setChatModal] = useState({ open: false, eventId: null as any });
-  const [chatMessages, setChatMessages] = useState<any[]>([]);
+  const [chatModal, setChatModal] = useState({ open: false, eventId: null as number | null });
+  const [chatMessages, setChatMessages] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState('');
 
   const [profileModal, setProfileModal] = useState(false);
@@ -60,66 +109,77 @@ const Dashboard = () => {
 
   const loadData = useCallback(async () => {
     try {
-      const params: any = viewMode === 'calendar' ? {} : { page, page_size: pageSize };
+      const params: Record<string, string | number> = viewMode === 'calendar' ? {} : { page, page_size: pageSize };
       if (tab !== 'ALL') {
         params.status = tab;
       }
       const [e, u, eq, loc, rls, m_users] = await Promise.all([
-        api.get('events/', { params }), 
+        api.get('events/', { params }),
         api.get('users/me/'),
-        api.get('equipment/'), // Тянем список техники
-        api.get('locations/'), // Тянем список локаций
-        api.get('event-roles/'), // Тянем список ролей
-        api.get('users/', { params: { role: 'MEDIA' } }) // Тянем список СМИ
+        api.get('equipment/'),
+        api.get('locations/'),
+        api.get('event-roles/'),
+        api.get('users/', { params: { role: 'MEDIA' } })
       ]);
-      if (e.data.results !== undefined) {
-        setEvents(e.data.results);
-        setTotalPages(Math.ceil(e.data.count / pageSize));
+      const eData = e.data as Paginated<DashEvent> | DashEvent[];
+      if ('results' in eData) {
+        setEvents(eData.results);
+        setTotalPages(Math.ceil(eData.count / pageSize));
       } else {
-        setEvents(e.data);
+        setEvents(eData);
         setTotalPages(1);
       }
-      setUser(u.data); 
-      setFeatures(u.data.features || {});
-      setEquipment(eq.data.results !== undefined ? eq.data.results : eq.data);
-      setLocations(loc.data.results !== undefined ? loc.data.results : loc.data);
-      setEventRoles(rls.data.results !== undefined ? rls.data.results : rls.data);
-      setMediaUsers(m_users.data.results !== undefined ? m_users.data.results : m_users.data);
-      
-      setProfileForm({ first_name: u.data.first_name || '', last_name: u.data.last_name || '', telegram_id: u.data.telegram_id || '' });
-      if (u.data.role === 'MAIN_ADMIN') setInvites((await api.get('invites/')).data);
+      const me = u.data as AppUser;
+      setUser(me);
+      const eqData = eq.data as Paginated<Equipment> | Equipment[];
+      setEquipment('results' in eqData ? eqData.results : eqData);
+      const locData = loc.data as Paginated<ApiLocation> | ApiLocation[];
+      setLocations('results' in locData ? locData.results : locData);
+      const rlsData = rls.data as Paginated<EventRole> | EventRole[];
+      setEventRoles('results' in rlsData ? rlsData.results : rlsData);
+      const mUsersData = m_users.data as Paginated<AppUser> | AppUser[];
+      setMediaUsers('results' in mUsersData ? mUsersData.results : mUsersData);
+
+      setProfileForm({ first_name: me.first_name || '', last_name: me.last_name || '', telegram_id: me.telegram_id || '' });
     } catch { navigate('/login'); } finally { setLoading(false); }
   }, [navigate, page, tab, viewMode]);
 
-  // Real-time updates broker integration
+  const loadChat = async (id: number): Promise<void> => {
+    const res = await api.get<Comment[]>(`events/${id}/comments/`);
+    setChatMessages(res.data);
+  };
+
   useUpdatesBroker(['event', 'equipment', 'loan'], () => {
-    loadData();
+    void loadData();
   });
 
-  useUpdatesBroker(['comment'], (log) => {
-    if (chatModal.open && log.extra_data?.event_id === chatModal.eventId) {
-      loadChat(chatModal.eventId);
+  useUpdatesBroker(['comment'], (log: UpdateLog) => {
+    if (chatModal.open && chatModal.eventId !== null && log.extra_data?.event_id === chatModal.eventId) {
+      void loadChat(chatModal.eventId);
     }
   });
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => {
+    // Defer the async load so no state updates happen synchronously in the effect body.
+    void Promise.resolve().then(() => loadData());
+  }, [loadData]);
 
-  const handleAction = async (id: number | null, action: string, data?: any) => {
+  const handleAction = async (id: number | null, action: string, data?: EventFormPayload) => {
     try {
       if (action === 'delete') { if (!window.confirm("Удалить?")) return; await api.delete(`events/${id}/`); }
       else if (action === 'approve') await api.post(`events/${id}/approve/`);
       else if (action === 'reject') await api.post(`events/${id}/reject/`);
       else if (action === 'save') {
-        // Подготовка данных для отправки (чистка ссылок)
-        const payload = { ...data };
+        if (!data) return;
+        const payload: EventFormPayload = { ...data, deadline: data?.deadline === '' ? null : data?.deadline ?? null };
         if (payload.document_link) {
-          payload.document_link = payload.document_link.trim().split(/\s+/).map((link: string) => {
+          payload.document_link = payload.document_link.trim().split(/\s+/).map((link) => {
             if (!link) return '';
             return /^https?:\/\//i.test(link) ? link : `https://${link}`;
           }).filter(Boolean).join(' ');
         }
         if (payload.result_link) {
-          payload.result_link = payload.result_link.trim().split(/\s+/).map((link: string) => {
+          payload.result_link = payload.result_link.trim().split(/\s+/).map((link) => {
             if (!link) return '';
             return /^https?:\/\//i.test(link) ? link : `https://${link}`;
           }).filter(Boolean).join(' ');
@@ -127,15 +187,15 @@ const Dashboard = () => {
         if (id) await api.patch(`events/${id}/`, payload);
         else await api.post('events/', payload);
       }
-      toast.success("Готово"); loadData(); setModal({ open: false, id: null });
+      toast.success("Готово"); void loadData(); setModal({ open: false, id: null });
     } catch { toast.error("Ошибка операции"); }
   };
 
-  const loadChat = async (id: number) => setChatMessages((await api.get(`events/${id}/comments/`)).data);
   const sendMessage = async () => {
     if (!newComment.trim()) return;
+    if (chatModal.eventId === null) return;
     await api.post(`events/${chatModal.eventId}/comments/`, { text: newComment });
-    setNewComment(''); loadChat(chatModal.eventId);
+    setNewComment(''); void loadChat(chatModal.eventId);
   };
 
     const handleCreateLocation = async () => {
@@ -201,9 +261,8 @@ const Dashboard = () => {
       setOldPassword('');
       setNewPassword('');
       loadData();
-    } catch (err: any) {
-      const msg = err.response?.data?.error || 'Ошибка сохранения';
-      toast.error(msg);
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err, 'Ошибка сохранения'));
     }
   };
 
@@ -240,7 +299,7 @@ const Dashboard = () => {
                   Импорт
                 </Button>
                 <Button variant="contained" onClick={() => { 
-                  setForm({title:'', date:'', time:'12:00', end_time:'14:00', deadline: '', location_ids: [], short_comment: '', content_type:'PHOTO', document_link:'', result_link: '', max_participants: 1, required_skill: 'ANY', equipment_ids: []}); 
+                  setForm({title:'', date:'', time:'12:00', end_time:'14:00', deadline: '', location_ids: [], short_comment: '', content_type:'PHOTO', document_link:'', result_link: '', max_participants: 1, equipment_ids: []}); 
                   setModal({open: true, id: null}); 
                 }}>Создать</Button>
               </Stack>
@@ -292,11 +351,7 @@ const Dashboard = () => {
                     COMPLETED: { label: 'Выполнено', color: 'default' },
                     OVERDUE: { label: 'Просрочено', color: 'error' },
                   };
-                  const skillMap: Record<string, string> = {
-                    ANY: 'Любой', PRO: 'PRO', VIDEO: 'Видео', DRONE: 'Дрон',
-                  };
                   const statusInfo = statusMap[event.status] || { label: event.status, color: 'default' as const };
-                  const skillLabel = skillMap[event.required_skill] || event.required_skill;
 
                   return (
                   <Box key={event.id}>
@@ -306,7 +361,20 @@ const Dashboard = () => {
                         {(isAdmin || (user?.role === 'ORGANIZER' && event.responsible_person?.id === user?.id)) && (
                           <Stack direction="row" spacing={0.5}>
                             <IconButton size="small" onClick={() => {
-                              setForm({...event, end_time: event.end_time || '', equipment_ids: event.booked_equipment?.map((eq:any) => eq.id) || [], location_ids: event.locations?.map((l:any) => l.id) || []}); 
+                              setForm({
+                              title: event.title,
+                              date: event.date,
+                              time: event.time || '12:00',
+                              end_time: event.end_time || '',
+                              deadline: event.deadline || '',
+                              location_ids: event.locations?.map((l) => l.id) || [],
+                              short_comment: event.short_comment || '',
+                              content_type: event.content_type || 'PHOTO',
+                              document_link: event.document_link || '',
+                              result_link: event.result_link || '',
+                              max_participants: event.max_participants ?? 1,
+                              equipment_ids: event.booked_equipment?.map((eq) => eq.id) || []
+                            });
                               setModal({open: true, id: event.id});
                             }} sx={{ p: 0.5 }}><EditIcon fontSize="small" /></IconButton>
 
@@ -322,7 +390,7 @@ const Dashboard = () => {
 
                       {event.locations && event.locations.length > 0 && (
                         <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', mb: 1, color: 'text.secondary', pr: 2 }}>
-                          <span style={{ marginRight: 4 }}>📍</span> {event.locations.map((l:any) => l.name).join(', ')}
+                          <span style={{ marginRight: 4 }}>📍</span> {event.locations.map((l) => l.name).join(', ')}
                         </Typography>
                       )}
 
@@ -332,16 +400,14 @@ const Dashboard = () => {
                         </Typography>
                       )}
 
-                      <Stack direction="row" spacing={0.75} sx={{ mb: 1.5, flexWrap: 'wrap', gap: 0.5 }}>
-                        <Chip icon={<MilitaryTechIcon />} label={skillLabel} size="small" variant="outlined" color={event.required_skill !== 'ANY' ? 'secondary' : 'default'} sx={{ height: 24, fontSize: '0.7rem' }} />
-                        <Chip label={`👥 ${event.media_participants?.length || 0} / ${event.max_participants}`} size="small" variant="outlined" sx={{ height: 24, fontSize: '0.7rem' }} />
-                      </Stack>
+                      <Chip label={`👥 ${event.media_participants?.length || 0} / ${event.max_participants}`} size="small" variant="outlined" sx={{ height: 24, fontSize: '0.7rem', mb: 1.5 }} />
+
                       
                       <Box sx={{ display: 'flex', gap: 0.5, mb: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
-                        {event.media_participants?.map((p: any) => {
+                        {event.media_participants?.map((p) => {
                           const fullName = `${p.first_name || ''} ${p.last_name || ''}`.trim() || p.username;
                           let title = p.phone_number ? `${fullName} (${p.phone_number})` : fullName;
-                          const details = event.participant_details?.[p.id.toString()] || {};
+                          const details: DashParticipantDetails = event.participant_details?.[p.id.toString()] || {};
                           const role = eventRoles.find(r => r.id === details.role_id)?.name;
                           const loc = locations.find(l => l.id === details.location_id)?.name;
                           if (role || loc) title += ` [${role || 'СМИ'}${loc ? ` - ${loc}` : ''}]`;
@@ -358,7 +424,7 @@ const Dashboard = () => {
                             </Tooltip>
                           );
                         })}
-                        {(isAdmin || user?.role === 'ORGANIZER') && (event.media_participants?.length || 0) < event.max_participants && (
+                        {(isAdmin || user?.role === 'ORGANIZER') && (event.media_participants?.length || 0) < (event.max_participants ?? 1) && (
                           <Chip 
                             label="+ СМИ" 
                             size="small" 
@@ -371,9 +437,9 @@ const Dashboard = () => {
                       </Box>
 
 
-                      {event.booked_equipment?.length > 0 && (
+                      {(event.booked_equipment?.length ?? 0) > 0 && (
                         <Box sx={{ mb: 1.5 }}>
-                          {event.booked_equipment.map((eq: any) => (
+                          {event.booked_equipment?.map((eq) => (
                             <Chip key={eq.id} icon={<Inventory2Icon sx={{ fontSize: '12px !important' }}/>} label={eq.name} size="small" sx={{ mr: 0.5, mb: 0.5, fontSize: '0.65rem', height: 22 }} />
                           ))}
                         </Box>
@@ -392,7 +458,7 @@ const Dashboard = () => {
                                 <IconButton
                                   size="small"
                                   onClick={() => {
-                                    event.document_link.trim().split(/\s+/).forEach((link: string) => {
+                                    event.document_link?.trim().split(/\s+/).forEach((link: string) => {
                                       if (link) {
                                         const target = /^https?:\/\//i.test(link) ? link : `https://${link}`;
                                         window.open(target, '_blank');
@@ -411,7 +477,7 @@ const Dashboard = () => {
                                 <IconButton
                                   size="small"
                                   onClick={() => {
-                                    event.result_link.trim().split(/\s+/).forEach((link: string) => {
+                                    event.result_link?.trim().split(/\s+/).forEach((link: string) => {
                                       if (link) {
                                         const target = /^https?:\/\//i.test(link) ? link : `https://${link}`;
                                         window.open(target, '_blank');
@@ -435,6 +501,27 @@ const Dashboard = () => {
                             <Button size="small" variant="contained" color="error" onClick={() => handleAction(event.id, 'reject')} fullWidth sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600, py: 0.75, fontSize: '0.8rem' }}>Отказ</Button>
                           </Stack>
                         )}
+
+                        {isAdmin && (event.status === 'OPEN' || event.status === 'IN_PROGRESS') && !event.media_participants?.some((p) => p.id === user?.id) && (event.media_participants?.length || 0) < (event.max_participants ?? 1) && (
+                          <Button
+                            size="small"
+                            variant="contained"
+                            color="primary"
+                            onClick={async () => {
+                              try {
+                                await api.post(`events/${event.id}/take_task/`, { equipment_ids: [] });
+                                toast.success("Вы успешно записались на мероприятие!");
+                                loadData();
+                              } catch {
+                                toast.error("Не удалось записаться");
+                              }
+                            }}
+                            fullWidth
+                            sx={{ mt: 1.5, borderRadius: 2, textTransform: 'none', fontWeight: 600, py: 0.75, fontSize: '0.8rem' }}
+                          >
+                            Пойти на мероприятие
+                          </Button>
+                        )}
                       </Box>
                     </Card>
                   </Box>
@@ -454,11 +541,7 @@ const Dashboard = () => {
                   COMPLETED: { label: 'Выполнено', color: 'default' },
                   OVERDUE: { label: 'Просрочено', color: 'error' },
                 };
-                const skillMap: Record<string, string> = {
-                  ANY: 'Любой', PRO: 'PRO', VIDEO: 'Видео', DRONE: 'Дрон',
-                };
                 const statusInfo = statusMap[event.status] || { label: event.status, color: 'default' as const };
-                const skillLabel = skillMap[event.required_skill] || event.required_skill;
 
                 return (
                 <Box key={event.id}>
@@ -468,7 +551,20 @@ const Dashboard = () => {
                       {(isAdmin || (user?.role === 'ORGANIZER' && event.responsible_person?.id === user?.id)) && (
                         <Stack direction="row" spacing={0.5}>
                           <IconButton size="small" onClick={() => {
-                            setForm({...event, end_time: event.end_time || '', equipment_ids: event.booked_equipment?.map((eq:any) => eq.id) || [], location_ids: event.locations?.map((l:any) => l.id) || []}); 
+                            setForm({
+                              title: event.title,
+                              date: event.date,
+                              time: event.time || '12:00',
+                              end_time: event.end_time || '',
+                              deadline: event.deadline || '',
+                              location_ids: event.locations?.map((l) => l.id) || [],
+                              short_comment: event.short_comment || '',
+                              content_type: event.content_type || 'PHOTO',
+                              document_link: event.document_link || '',
+                              result_link: event.result_link || '',
+                              max_participants: event.max_participants ?? 1,
+                              equipment_ids: event.booked_equipment?.map((eq) => eq.id) || []
+                            });
                             setModal({open: true, id: event.id});
                           }} sx={{ p: 0.5 }}><EditIcon fontSize="small" /></IconButton>
 
@@ -484,7 +580,7 @@ const Dashboard = () => {
 
                     {event.locations && event.locations.length > 0 && (
                       <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', mb: 1, color: 'text.secondary', pr: 2 }}>
-                        <span style={{ marginRight: 4 }}>📍</span> {event.locations.map((l:any) => l.name).join(', ')}
+                        <span style={{ marginRight: 4 }}>📍</span> {event.locations.map((l) => l.name).join(', ')}
                       </Typography>
                     )}
 
@@ -494,16 +590,14 @@ const Dashboard = () => {
                       </Typography>
                     )}
 
-                    <Stack direction="row" spacing={0.75} sx={{ mb: 1.5, flexWrap: 'wrap', gap: 0.5 }}>
-                      <Chip icon={<MilitaryTechIcon />} label={skillLabel} size="small" variant="outlined" color={event.required_skill !== 'ANY' ? 'secondary' : 'default'} sx={{ height: 24, fontSize: '0.7rem' }} />
-                      <Chip label={`👥 ${event.media_participants?.length || 0} / ${event.max_participants}`} size="small" variant="outlined" sx={{ height: 24, fontSize: '0.7rem' }} />
-                    </Stack>
+                    <Chip label={`👥 ${event.media_participants?.length || 0} / ${event.max_participants}`} size="small" variant="outlined" sx={{ height: 24, fontSize: '0.7rem', mb: 1.5 }} />
+
                     
                       <Box sx={{ display: 'flex', gap: 0.5, mb: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
-                        {event.media_participants?.map((p: any) => {
+                        {event.media_participants?.map((p) => {
                           const fullName = `${p.first_name || ''} ${p.last_name || ''}`.trim() || p.username;
                           let title = p.phone_number ? `${fullName} (${p.phone_number})` : fullName;
-                          const details = event.participant_details?.[p.id.toString()] || {};
+                          const details: DashParticipantDetails = event.participant_details?.[p.id.toString()] || {};
                           const role = eventRoles.find(r => r.id === details.role_id)?.name;
                           const loc = locations.find(l => l.id === details.location_id)?.name;
                           if (role || loc) title += ` [${role || 'СМИ'}${loc ? ` - ${loc}` : ''}]`;
@@ -520,7 +614,7 @@ const Dashboard = () => {
                             </Tooltip>
                           );
                         })}
-                        {(isAdmin || user?.role === 'ORGANIZER') && (event.media_participants?.length || 0) < event.max_participants && (
+                        {(isAdmin || user?.role === 'ORGANIZER') && (event.media_participants?.length || 0) < (event.max_participants ?? 1) && (
                           <Chip 
                             label="+ СМИ" 
                             size="small" 
@@ -533,9 +627,9 @@ const Dashboard = () => {
                       </Box>
 
 
-                    {event.booked_equipment?.length > 0 && (
+                    {(event.booked_equipment?.length ?? 0) > 0 && (
                       <Box sx={{ mb: 1.5 }}>
-                        {event.booked_equipment.map((eq: any) => (
+                        {event.booked_equipment?.map((eq) => (
                           <Chip key={eq.id} icon={<Inventory2Icon sx={{ fontSize: '12px !important' }}/>} label={eq.name} size="small" sx={{ mr: 0.5, mb: 0.5, fontSize: '0.65rem', height: 22 }} />
                         ))}
                       </Box>
@@ -554,7 +648,7 @@ const Dashboard = () => {
                               <IconButton
                                 size="small"
                                 onClick={() => {
-                                  event.document_link.trim().split(/\s+/).forEach((link: string) => {
+                                  event.document_link?.trim().split(/\s+/).forEach((link: string) => {
                                     if (link) {
                                       const target = /^https?:\/\//i.test(link) ? link : `https://${link}`;
                                       window.open(target, '_blank');
@@ -573,7 +667,7 @@ const Dashboard = () => {
                               <IconButton
                                 size="small"
                                 onClick={() => {
-                                  event.result_link.trim().split(/\s+/).forEach((link: string) => {
+                                  event.result_link?.trim().split(/\s+/).forEach((link: string) => {
                                     if (link) {
                                       const target = /^https?:\/\//i.test(link) ? link : `https://${link}`;
                                       window.open(target, '_blank');
@@ -590,6 +684,27 @@ const Dashboard = () => {
                           <IconButton size="small" onClick={() => {setChatModal({open: true, eventId: event.id}); loadChat(event.id);}} sx={{ p: 0.5 }}><ChatIcon fontSize="small" /></IconButton>
                         </Stack>
                       </Box>
+
+                      {isAdmin && (event.status === 'OPEN' || event.status === 'IN_PROGRESS') && !event.media_participants?.some((p) => p.id === user?.id) && (event.media_participants?.length || 0) < (event.max_participants ?? 1) && (
+                        <Button
+                          size="small"
+                          variant="contained"
+                          color="primary"
+                          onClick={async () => {
+                            try {
+                              await api.post(`events/${event.id}/take_task/`);
+                              toast.success("Вы записались на мероприятие");
+                              loadData();
+                            } catch (err: unknown) {
+                              toast.error(getErrorMessage(err, "Ошибка записи"));
+                            }
+                          }}
+                          fullWidth
+                          sx={{ mt: 1.5, borderRadius: 2, textTransform: 'none', fontWeight: 600, py: 0.75, fontSize: '0.8rem' }}
+                        >
+                          Пойти на мероприятие
+                        </Button>
+                      )}
 
                       {isAdmin && event.status === 'PENDING' && (
                         <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
@@ -635,9 +750,9 @@ const Dashboard = () => {
                         <Select
               multiple
               value={form.location_ids}
-              onChange={(e:any) => {
-                const values = e.target.value;
-                if (values.includes('CREATE_NEW')) {
+              onChange={(e) => {
+                const values = e.target.value as number[];
+                if (values.includes(-1)) {
                   setCreateLocation({ open: true, name: '' });
                 } else {
                   setForm({...form, location_ids: values});
@@ -646,7 +761,7 @@ const Dashboard = () => {
               input={<OutlinedInput label="Локации" />}
               renderValue={(selected) => (
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                  {selected.map((value: any) => (
+                  {selected.map((value: number) => (
                     <Chip key={value} label={locations.find(loc => loc.id === value)?.name || value} size="small" />
                   ))}
                 </Box>
@@ -676,22 +791,15 @@ const Dashboard = () => {
               <TextField fullWidth type="datetime-local" label="Дедлайн сдачи (по умолчанию +7 дней)" slotProps={{ inputLabel: { shrink: true } }} value={form.deadline} onChange={e => setForm({...form, deadline: e.target.value})} />
               
               <FormControl fullWidth>
-                <InputLabel>Нужный навык</InputLabel>
-                <Select value={form.required_skill} label="Нужный навык" onChange={e => setForm({...form, required_skill: e.target.value})}>
-                  <MenuItem value="ANY">Любой</MenuItem><MenuItem value="PRO">Только PRO</MenuItem><MenuItem value="VIDEO">Видеограф</MenuItem><MenuItem value="DRONE">Пилот дрона</MenuItem>
-                </Select>
-              </FormControl>
-              
-              <FormControl fullWidth>
                 <InputLabel>Необходимая техника</InputLabel>
                 <Select
                   multiple
                   value={form.equipment_ids}
-                  onChange={(e:any) => setForm({...form, equipment_ids: e.target.value})}
+                  onChange={(e) => setForm({...form, equipment_ids: e.target.value as number[]})}
                   input={<OutlinedInput label="Необходимая техника" />}
                   renderValue={(selected) => (
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                      {selected.map((value: any) => (
+                      {selected.map((value: number) => (
                         <Chip key={value} label={equipment.find(eq => eq.id === value)?.name || value} size="small" />
                       ))}
                     </Box>
@@ -772,7 +880,7 @@ const Dashboard = () => {
         <DialogContent dividers>
           <FormControl fullWidth margin="dense">
             <InputLabel>Сотрудник</InputLabel>
-            <Select value={assignModal.user_id} label="Сотрудник" onChange={e => setAssignModal({...assignModal, user_id: e.target.value as any})}>
+            <Select value={assignModal.user_id} label="Сотрудник" onChange={e => setAssignModal({...assignModal, user_id: e.target.value as string | number})}>
               {mediaUsers.map(u => <MenuItem key={u.id} value={u.id}>{u.first_name || u.username} {u.last_name}</MenuItem>)}
             </Select>
           </FormControl>
@@ -783,7 +891,7 @@ const Dashboard = () => {
               label="Роль" 
               onChange={e => {
                 if (e.target.value === 'CREATE_NEW') setCreateRole({ open: true, name: '' });
-                else setAssignModal({...assignModal, role_id: e.target.value as any});
+                else setAssignModal({...assignModal, role_id: e.target.value as string | number});
               }}
             >
               <MenuItem value=""><em>Не назначена</em></MenuItem>
@@ -798,7 +906,7 @@ const Dashboard = () => {
               label="Локация" 
               onChange={e => {
                 if (e.target.value === 'CREATE_NEW') setCreateLocation({ open: true, name: '' });
-                else setAssignModal({...assignModal, location_id: e.target.value as any});
+                else setAssignModal({...assignModal, location_id: e.target.value as string | number});
               }}
             >
               <MenuItem value=""><em>Любая</em></MenuItem>

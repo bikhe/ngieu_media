@@ -5,6 +5,7 @@ import hashlib
 import urllib.parse
 import json
 import logging
+from datetime import timedelta
 
 logger = logging.getLogger(__name__)
 from django.conf import settings
@@ -18,7 +19,8 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.exceptions import PermissionDenied
-from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.tokens import RefreshToken, AccessToken
+from rest_framework_simplejwt.settings import api_settings
 from django_filters.rest_framework import DjangoFilterBackend
 from .models import *
 from .serializers import *
@@ -33,7 +35,7 @@ ENABLE_TELEGRAM_BOT = getattr(settings, 'ENABLE_TELEGRAM_BOT', True)
 ENABLE_CSV_REPORTS = getattr(settings, 'ENABLE_CSV_REPORTS', True)
 
 # Read config from settings
-TELEGRAM_BOT_TOKEN = getattr(settings, 'TELEGRAM_BOT_TOKEN', 'ТВОЙ_ТОКЕН_ИЗ_BOTFATHER')
+TELEGRAM_BOT_TOKEN = getattr(settings, 'TELEGRAM_BOT_TOKEN', None)
 TELEGRAM_WEBAPP_URL = getattr(settings, 'TELEGRAM_WEBAPP_URL', 'http://localhost:5173')
 
 def verify_telegram_init_data(init_data: str, bot_token: str) -> dict | None:
@@ -938,14 +940,16 @@ class UpdatesView(APIView):
     def get(self, request):
         user = request.user
         if not user or not user.is_authenticated:
-            token = request.query_params.get('token')
-            if token:
+            # The SSE broker cannot send Authorization headers, so it forwards
+            # a short-lived ticket (see post()) instead of a long-lived JWT.
+            ticket = request.query_params.get('ticket')
+            if ticket:
                 try:
-                    validated_token = JWTAuthentication().get_validated_token(token)
+                    validated_token = JWTAuthentication().get_validated_token(ticket)
                     user = JWTAuthentication().get_user(validated_token)
                 except (InvalidToken, TokenError):
-                    return Response({'error': 'Invalid token'}, status=401)
-            
+                    return Response({'error': 'Invalid ticket'}, status=401)
+
             if not user or not user.is_authenticated:
                 return Response({'error': 'Unauthorized'}, status=401)
 
@@ -970,3 +974,20 @@ class UpdatesView(APIView):
             'last_id': new_logs.last().id if new_logs.exists() else last_id,
             'logs': logs_data
         })
+
+    def post(self, request):
+        """Issue a short-lived ticket for the SSE stream.
+
+        The browser exchanges its normal Authorization header for a ticket
+        that only lives a few seconds, so the value that ends up in the
+        /stream?ticket=... URL is useless to log readers within moments.
+        """
+        if not request.user or not request.user.is_authenticated:
+            return Response({'error': 'Unauthorized'}, status=401)
+
+        class SSEAccessToken(AccessToken):
+            lifetime = timedelta(seconds=getattr(settings, 'SSE_TICKET_LIFETIME', 30))
+
+        ticket = SSEAccessToken()
+        ticket[api_settings.USER_ID_CLAIM] = getattr(request.user, api_settings.USER_ID_FIELD)
+        return Response({'ticket': str(ticket), 'expires_in': SSEAccessToken.lifetime.seconds})

@@ -10,10 +10,21 @@ import {
 } from '@mui/material';
 import { apiService } from '../services/api';
 
+interface TelegramWebApp {
+  initData?: string;
+}
+
+interface ExtendedWindow {
+  Telegram?: { WebApp?: TelegramWebApp };
+}
+
+const getTelegramInitData = (): string | undefined =>
+  (window as unknown as ExtendedWindow).Telegram?.WebApp?.initData;
+
 interface ProfileModalProps {
   open: boolean;
   onClose: () => void;
-  user: {
+  user?: {
     first_name?: string;
     last_name?: string;
     telegram_id?: string;
@@ -27,17 +38,16 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   user,
   onSave,
 }) => {
-  const [firstName, setFirstName] = useState(user.first_name || '');
-  const [lastName, setLastName] = useState(user.last_name || '');
-  const [telegramId, setTelegramId] = useState(user.telegram_id || '');
+  const [firstName, setFirstName] = useState(user?.first_name || '');
+  const [lastName, setLastName] = useState(user?.last_name || '');
+  const [telegramId, setTelegramId] = useState(user?.telegram_id || '');
   const [saving, setSaving] = useState(false);
 
-  // Password change state
   const [changePassOpen, setChangePassOpen] = useState(false);
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
 
-  const isTelegramWebApp = !!(window as any).Telegram?.WebApp?.initData;
+  const isTelegramWebApp = !!getTelegramInitData();
 
   const handleSave = async () => {
     setSaving(true);
@@ -59,7 +69,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
           return;
         }
         
-        const initData = (window as any).Telegram?.WebApp?.initData;
+        const initData = getTelegramInitData();
         const passSuccess = await apiService.changePassword(
           isTelegramWebApp ? null : oldPassword,
           newPassword,

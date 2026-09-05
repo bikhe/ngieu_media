@@ -1,0 +1,139 @@
+import { useState, useEffect } from 'react';
+import {
+  Dialog, DialogTitle, DialogContent, DialogActions, Button,
+  Box, Typography, TextField, IconButton,
+  Select, MenuItem, InputLabel, FormControl, CircularProgress,
+  List, ListItem, ListItemText, ListItemSecondaryAction, Paper
+} from '@mui/material';
+import { Edit2, Trash2 } from 'lucide-react';
+import { apiService } from '../services/api';
+import type { EventTemplate } from '../services/api';
+
+interface AdminPanelModalProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+export default function AdminPanelModal({ open, onClose }: AdminPanelModalProps) {
+  const [templates, setTemplates] = useState<EventTemplate[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const [editTemplateId, setEditTemplateId] = useState<number | null>(null);
+  const [templateForm, setTemplateForm] = useState({ name: '', content_type: 'PHOTO', max_participants: 1 });
+
+  useEffect(() => {
+    if (open) {
+      loadData();
+    }
+  }, [open]);
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const res = await apiService.getTemplates();
+      setTemplates(Array.isArray(res) ? res : (res as any).results || []);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveTemplate = async () => {
+    if (!templateForm.name) return;
+    const success = await apiService.saveTemplate(editTemplateId, templateForm);
+    if (success) {
+      setEditTemplateId(null);
+      setTemplateForm({ name: '', content_type: 'PHOTO', max_participants: 1 });
+      loadData();
+    }
+  };
+
+  const handleDeleteTemplate = async (id: number) => {
+    if (window.confirm("Удалить шаблон?")) {
+      const success = await apiService.deleteTemplate(id);
+      if (success) loadData();
+    }
+  };
+
+  return (
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+      <DialogTitle>Настройки платформы</DialogTitle>
+
+      <DialogContent sx={{ minHeight: '300px' }}>
+        {loading ? (
+          <Box sx={{ display: "flex", justifyContent: "center", mt: 4 }}><CircularProgress /></Box>
+        ) : (
+          <Box sx={{ mt: 2 }}>
+            <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
+              <Typography variant="subtitle2" sx={{ mb: 2 }}>
+                {editTemplateId ? 'Редактировать шаблон' : 'Добавить шаблон'}
+              </Typography>
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <TextField
+                  label="Название шаблона (например: Отчетный ролик)"
+                  size="small"
+                  value={templateForm.name}
+                  onChange={e => setTemplateForm({...templateForm, name: e.target.value})}
+                />
+
+                <FormControl size="small">
+                  <InputLabel>Тип контента</InputLabel>
+                  <Select
+                    value={templateForm.content_type}
+                    label="Тип контента"
+                    onChange={e => setTemplateForm({...templateForm, content_type: e.target.value})}
+                  >
+                    <MenuItem value="PHOTO">Фото</MenuItem>
+                    <MenuItem value="VIDEO">Видео</MenuItem>
+                    <MenuItem value="ALL">Всё вместе</MenuItem>
+                  </Select>
+                </FormControl>
+
+                <TextField
+                  label="Количество мест"
+                  type="number"
+                  size="small"
+                  value={templateForm.max_participants}
+                  onChange={e => setTemplateForm({...templateForm, max_participants: parseInt(e.target.value) || 1})}
+                />
+
+                <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1 }}>
+                  {editTemplateId && (
+                    <Button onClick={() => { setEditTemplateId(null); setTemplateForm({ name: '', content_type: 'PHOTO', max_participants: 1 }); }}>
+                      Отмена
+                    </Button>
+                  )}
+                  <Button variant="contained" onClick={handleSaveTemplate}>
+                    Сохранить
+                  </Button>
+                </Box>
+              </Box>
+            </Paper>
+
+            <List>
+              {templates.map(t => (
+                <ListItem key={t.id} divider>
+                  <ListItemText
+                    primary={t.name}
+                    secondary={`${t.content_type}, ${t.max_participants} чел.`}
+                  />
+                  <ListItemSecondaryAction>
+                    <IconButton size="small" onClick={() => {
+                      setEditTemplateId(t.id);
+                      setTemplateForm({ name: t.name, content_type: t.content_type, max_participants: t.max_participants });
+                    }}><Edit2 size={16} /></IconButton>
+                    <IconButton size="small" onClick={() => handleDeleteTemplate(t.id)} color="error"><Trash2 size={16} /></IconButton>
+                  </ListItemSecondaryAction>
+                </ListItem>
+              ))}
+            </List>
+          </Box>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Закрыть</Button>
+      </DialogActions>
+    </Dialog>
+  );
+}

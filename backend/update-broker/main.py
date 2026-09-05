@@ -26,7 +26,7 @@ BACKEND_URL = os.environ.get("BACKEND_URL", "http://backend:8000")
 KEEPALIVE_INTERVAL = 20
 
 
-async def event_generator(request: Request, since_id: int, token: str = None):
+async def event_generator(request: Request, since_id: int, ticket: str = None):
     # Send retry directive: client waits 5s before reconnecting (default is ~3s)
     yield {"event": "message", "retry": 5000, "data": json.dumps({"type": "connected"})}
 
@@ -34,8 +34,8 @@ async def event_generator(request: Request, since_id: int, token: str = None):
     try:
         async with httpx.AsyncClient() as client:
             url = f"{BACKEND_URL}/api/updates/?since_id={since_id}"
-            if token:
-                url += f"&token={token}"
+            if ticket:
+                url += f"&ticket={ticket}"
             resp = await client.get(url, timeout=10)
             if resp.status_code == 200:
                 data = resp.json()
@@ -95,6 +95,6 @@ async def event_generator(request: Request, since_id: int, token: str = None):
 
 
 @app.get("/stream")
-async def sse_stream(request: Request, since_id: int = 0, token: str = None):
-    return EventSourceResponse(event_generator(request, since_id, token), ping=0)
+async def sse_stream(request: Request, since_id: int = 0, ticket: str = None):
+    return EventSourceResponse(event_generator(request, since_id, ticket), ping=0)
 

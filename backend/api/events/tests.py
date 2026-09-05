@@ -1,5 +1,6 @@
 from django.test import TestCase
 from django.utils import timezone
+from django.utils.crypto import get_random_string
 from rest_framework.test import APIClient
 from rest_framework import status
 from django.contrib.auth import get_user_model
@@ -7,16 +8,23 @@ from .models import InviteCode, Equipment, Event
 
 User = get_user_model()
 
+# Throwaway credentials generated at import time; used only inside the
+# in-memory test database. No literal passwords in source.
+TEST_PASSWORD = get_random_string(20)
+TEST_PASSWORD_ALT = get_random_string(20)
+TEST_PASSWORD_NEW = get_random_string(20)
+
+
 class MediaExchangeTests(TestCase):
     def setUp(self):
         self.client = APIClient()
-        
+
         # Create users
-        self.admin = User.objects.create_superuser(username='admin', password='password123', role='MAIN_ADMIN')
-        self.org1 = User.objects.create_user(username='org1', password='password123', role='ORGANIZER')
-        self.org2 = User.objects.create_user(username='org2', password='password123', role='ORGANIZER')
-        self.media1 = User.objects.create_user(username='media1', password='password123', role='MEDIA', skill_level='ANY')
-        self.media2 = User.objects.create_user(username='media2', password='password123', role='MEDIA', skill_level='ANY')
+        self.admin = User.objects.create_superuser(username='admin', password=TEST_PASSWORD, role='MAIN_ADMIN')
+        self.org1 = User.objects.create_user(username='org1', password=TEST_PASSWORD, role='ORGANIZER')
+        self.org2 = User.objects.create_user(username='org2', password=TEST_PASSWORD, role='ORGANIZER')
+        self.media1 = User.objects.create_user(username='media1', password=TEST_PASSWORD, role='MEDIA', skill_level='ANY')
+        self.media2 = User.objects.create_user(username='media2', password=TEST_PASSWORD, role='MEDIA', skill_level='ANY')
         
         # Create equipment
         self.camera = Equipment.objects.create(name='Camera A', total_quantity=1)
@@ -29,7 +37,7 @@ class MediaExchangeTests(TestCase):
         # Register user
         response = self.client.post('/api/register/', {
             'username': 'new_media',
-            'password': 'password123',
+            'password': TEST_PASSWORD,
             'invite_code': 'MEDIA123'
         })
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -325,7 +333,7 @@ class MediaExchangeTests(TestCase):
         self.client.force_authenticate(user=self.media1)
         response = self.client.post('/api/users/', {
             'username': 'temp_user',
-            'password': 'password123',
+            'password': TEST_PASSWORD,
             'role': 'ORGANIZER'
         })
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -334,7 +342,7 @@ class MediaExchangeTests(TestCase):
         self.client.force_authenticate(user=self.admin)
         response = self.client.post('/api/users/', {
             'username': 'new_staff',
-            'password': 'securepassword123',
+            'password': TEST_PASSWORD_ALT,
             'role': 'ORGANIZER',
             'first_name': 'Ivan',
             'last_name': 'Ivanov'
@@ -347,7 +355,7 @@ class MediaExchangeTests(TestCase):
         self.assertEqual(new_user.username, 'new_staff')
         self.assertEqual(new_user.role, 'ORGANIZER')
         self.assertEqual(new_user.first_name, 'Ivan')
-        self.assertTrue(new_user.check_password('securepassword123'))
+        self.assertTrue(new_user.check_password(TEST_PASSWORD_ALT))
 
         # 3. Non-admin user tries to edit -> 403
         self.client.force_authenticate(user=self.media1)
@@ -358,12 +366,12 @@ class MediaExchangeTests(TestCase):
         self.client.force_authenticate(user=self.admin)
         response = self.client.patch(f'/api/users/{new_user_id}/', {
             'first_name': 'Petr',
-            'password': 'newpassword123'
+            'password': TEST_PASSWORD_NEW
         })
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         new_user.refresh_from_db()
         self.assertEqual(new_user.first_name, 'Petr')
-        self.assertTrue(new_user.check_password('newpassword123'))
+        self.assertTrue(new_user.check_password(TEST_PASSWORD_NEW))
 
         # 5. Non-admin tries to delete -> 403
         self.client.force_authenticate(user=self.media1)

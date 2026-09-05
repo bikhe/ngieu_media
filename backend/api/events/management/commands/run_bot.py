@@ -11,10 +11,10 @@ class Command(BaseCommand):
     help = 'Runs the Telegram Bot using aiogram'
 
     def handle(self, *args, **options):
-        token = getattr(settings, 'TELEGRAM_BOT_TOKEN', 'ТВОЙ_ТОКЕН_ИЗ_BOTFATHER')
-        if not token or token == 'ТВОЙ_ТОКЕН_ИЗ_BOTFATHER':
-            self.stderr.write("Error: TELEGRAM_BOT_TOKEN is not set or is default.")
-            return
+        token = getattr(settings, 'TELEGRAM_BOT_TOKEN', None)
+        if not token:
+            self.stderr.write("Error: TELEGRAM_BOT_TOKEN is not set.")
+            raise SystemExit(1)
 
         self.stdout.write(f"Starting Telegram Bot...")
         try:

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Dialog, DialogTitle, DialogContent, DialogActions, TextField, Button, Stack, FormControl, InputLabel, Select, MenuItem, OutlinedInput, Box, Chip, Typography, Collapse, IconButton } from '@mui/material';
+import { Dialog, DialogTitle, DialogContent, DialogActions, TextField, Button, Stack, FormControl, InputLabel, Select, MenuItem, OutlinedInput, Box, Chip, Collapse } from '@mui/material';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { apiService } from '../services/api';
+import type { EventTemplate, Equipment } from '../services/api';
 import toast from 'react-hot-toast';
 
 interface EventFormModalProps {
@@ -9,55 +10,70 @@ interface EventFormModalProps {
   onClose: () => void;
   eventId?: number | null;
   onSave: () => void;
-  equipmentList: any[];
+  equipmentList: Equipment[];
+}
+
+interface EventFormState {
+  title: string; date: string; time: string; end_time: string | null; deadline: string | null; location_ids: number[];
+  short_comment: string; content_type: string; document_link: string; result_link: string;
+  max_participants: number; equipment_ids: number[];
 }
 
 export const EventFormModal: React.FC<EventFormModalProps> = ({ open, onClose, eventId, onSave, equipmentList }) => {
-  const [form, setForm] = useState({ 
-    title: '', date: '', time: '12:00', end_time: '14:00', deadline: '', location_ids: [] as number[], short_comment: '', 
+  const [form, setForm] = useState<EventFormState>({
+    title: '', date: '', time: '12:00', end_time: '14:00', deadline: '', location_ids: [] as number[], short_comment: '',
     content_type: 'PHOTO', document_link: '', result_link: '',
-    max_participants: 1, required_skill: 'ANY', equipment_ids: [] as number[] 
+    max_participants: 1, equipment_ids: [] as number[]
   });
   const [loading, setLoading] = useState(false);
 
-  const [locations, setLocations] = useState<any[]>([]);
+  const [locations, setLocations] = useState<{ id: number; name: string }[]>([]);
   const [createLocation, setCreateLocation] = useState({ open: false, name: '' });
 
-  const [skills, setSkills] = useState<any[]>([]);
-  const [templates, setTemplates] = useState<any[]>([]);
+  const [templates, setTemplates] = useState<EventTemplate[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<number | ''>('');
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   useEffect(() => {
     if (open) {
-      apiService.getSkills().then(res => setSkills(Array.isArray(res) ? res : res.results || []));
-      apiService.getTemplates().then(res => setTemplates(Array.isArray(res) ? res : res.results || []));
-      apiService.getLocations().then(res => setLocations(Array.isArray(res) ? res : res.results || []));
+      // Deferred so the state updates never happen synchronously in the effect body.
+      void Promise.resolve().then(() => {
+        void apiService.getTemplates().then(setTemplates);
+        void apiService.getLocations().then(setLocations);
+      });
     }
   }, [open]);
 
   useEffect(() => {
     if (open && eventId) {
+      // Deferred so the state updates never happen synchronously in the effect body.
+      void Promise.resolve().then(() => {
       setLoading(true);
-      apiService.getEvents().then((data: any) => {
-        const events = Array.isArray(data) ? data : (data.results || []);
-        const event = events.find((e: any) => e.id === eventId);
+      return apiService.getEvents().then((data: unknown) => {
+        const events = (Array.isArray(data) ? data : ((data as { results?: unknown[] }).results || [])) as Array<
+          EventFormState & { id: number; booked_equipment?: Array<{ id: number }>; end_time?: string }
+        >;
+        const event = events.find((e) => e.id === eventId);
         if (event) {
           setForm({
             ...event,
             end_time: event.end_time || '',
-            equipment_ids: event.booked_equipment?.map((eq: any) => eq.id) || []
+            equipment_ids: event.booked_equipment?.map((eq) => eq.id) || []
           });
           setSelectedTemplate('');
         }
       }).finally(() => setLoading(false));
-    } else if (open && !eventId) {
-      setForm({ 
-        title: '', date: '', time: '12:00', end_time: '14:00', deadline: '', location_ids: [] as number[], short_comment: '', 
-        content_type: 'PHOTO', document_link: '', result_link: '',
-        max_participants: 1, required_skill: 'ANY', equipment_ids: [] 
       });
-      setSelectedTemplate('');
+    } else if (open && !eventId) {
+      // Deferred so the state reset never happens synchronously in the effect body.
+      void Promise.resolve().then(() => {
+        setForm({
+          title: '', date: '', time: '12:00', end_time: '14:00', deadline: '', location_ids: [] as number[], short_comment: '',
+          content_type: 'PHOTO', document_link: '', result_link: '',
+          max_participants: 1, equipment_ids: []
+        });
+        setSelectedTemplate('');
+      });
     }
   }, [open, eventId]);
 
@@ -70,7 +86,6 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({ open, onClose, e
           ...prev,
           title: template.name,
           content_type: template.content_type,
-          required_skill: template.required_skill,
           max_participants: template.max_participants,
           equipment_ids: template.equipment || []
         }));
@@ -82,8 +97,8 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({ open, onClose, e
     try {
       setLoading(true);
       const payload = { ...form };
-      if (!payload.end_time) payload.end_time = null as any;
-      if (!payload.deadline) payload.deadline = null as any;
+      if (!payload.end_time) payload.end_time = null;
+      if (!payload.deadline) payload.deadline = null;
       
       const success = await apiService.saveEvent(eventId || null, payload);
       if (success) {
@@ -152,18 +167,18 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({ open, onClose, e
           <Select
             multiple
             value={form.location_ids}
-            onChange={(e:any) => {
-              const values = e.target.value;
+            onChange={(e) => {
+              const values = e.target.value as (number | 'CREATE_NEW')[];
               if (values.includes('CREATE_NEW')) {
                 setCreateLocation({ open: true, name: '' });
               } else {
-                setForm({...form, location_ids: values});
+                setForm({...form, location_ids: values.filter((v): v is number => typeof v === 'number')});
               }
             }}
             input={<OutlinedInput label="Локации" />}
             renderValue={(selected) => (
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                {selected.map((value: any) => (
+                {selected.map((value: number) => (
                   <Chip key={value} label={locations.find(loc => loc.id === value)?.name || value} size="small" />
                 ))}
               </Box>
@@ -184,19 +199,9 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({ open, onClose, e
               <MenuItem value="PHOTO">Фото</MenuItem><MenuItem value="VIDEO">Видео</MenuItem><MenuItem value="ALL">Всё вместе</MenuItem>
             </Select>
           </FormControl>
-          <FormControl fullWidth>
-            <InputLabel>Нужный навык</InputLabel>
-            <Select value={form.required_skill} label="Нужный навык" onChange={e => setForm({...form, required_skill: e.target.value})}>
-              {skills.length > 0 ? (
-                skills.map(s => <MenuItem key={s.id} value={s.code}>{s.name}</MenuItem>)
-              ) : (
-                <MenuItem value="ANY">Любой</MenuItem>
-              )}
-            </Select>
-          </FormControl>
         </Stack>
 
-        <Box mt={2} mb={1}>
+        <Box sx={{ mt: 2, mb: 1 }}>
           <Button 
             fullWidth 
             color="inherit" 
@@ -209,7 +214,7 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({ open, onClose, e
         </Box>
 
         <Collapse in={showAdvanced}>
-          <Box pt={1}>
+          <Box sx={{ pt: 1 }}>
             <Stack direction="row" spacing={2} sx={{ mt: 1 }}>
               <TextField fullWidth type="number" label="Макс. участников" value={form.max_participants} onChange={e => setForm({...form, max_participants: parseInt(e.target.value)})} />
               <TextField fullWidth type="datetime-local" label="Дедлайн сдачи" slotProps={{ inputLabel: { shrink: true } }} value={form.deadline} onChange={e => setForm({...form, deadline: e.target.value})} />
@@ -220,11 +225,11 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({ open, onClose, e
               <Select
                 multiple
                 value={form.equipment_ids}
-                onChange={(e:any) => setForm({...form, equipment_ids: e.target.value})}
+                onChange={(e) => setForm({...form, equipment_ids: e.target.value as number[]})}
                 input={<OutlinedInput label="Необходимая техника" />}
                 renderValue={(selected) => (
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                    {selected.map((value: any) => (
+                    {selected.map((value: number) => (
                       <Chip key={value} label={equipmentList.find(eq => eq.id === value)?.name} size="small" />
                     ))}
                   </Box>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Drawer,
   Box,
@@ -12,20 +12,9 @@ import {
 } from '@mui/material';
 import { Send, X } from 'lucide-react';
 import { apiService } from '../services/api';
+import type { Comment } from '../services/api';
 import { useUpdatesBroker } from '../services/useUpdatesBroker';
 
-interface Author {
-  username: string;
-  first_name?: string;
-  last_name?: string;
-}
-
-interface Comment {
-  id: number;
-  author: Author;
-  text: string;
-  created_at?: string;
-}
 
 interface ChatDrawerProps {
   open: boolean;
@@ -48,7 +37,7 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
   const [sending, setSending] = useState(false);
   const listEndRef = useRef<HTMLDivElement | null>(null);
 
-  const loadComments = async (showLoading = false) => {
+  const loadComments = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true);
     try {
       const data = await apiService.getComments(eventId);
@@ -58,13 +47,13 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
     } finally {
       if (showLoading) setLoading(false);
     }
-  };
+  }, [eventId]);
 
-  // Load comments on mount/open
   useEffect(() => {
     if (!open) return;
-    loadComments(true);
-  }, [open, eventId]);
+    // Defer the async load so no state updates happen synchronously in the effect body.
+    void Promise.resolve().then(() => loadComments(true));
+  }, [open, eventId, loadComments]);
 
   // Real-time updates broker integration for new chat messages
   useUpdatesBroker(['comment'], (log) => {
@@ -73,7 +62,6 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
     }
   });
 
-  // Scroll to bottom when comments change
   useEffect(() => {
     listEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [comments]);

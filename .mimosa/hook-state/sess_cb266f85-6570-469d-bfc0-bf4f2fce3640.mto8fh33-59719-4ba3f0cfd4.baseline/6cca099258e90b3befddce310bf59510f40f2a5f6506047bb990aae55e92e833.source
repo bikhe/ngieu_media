@@ -1,0 +1,814 @@
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Typography,
+  IconButton,
+  Box,
+  CircularProgress,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
+  MenuItem,
+  Button,
+  Card,
+  Chip,
+  Paper,
+  BottomNavigation,
+  BottomNavigationAction,
+  useTheme,
+  alpha,
+  Tabs,
+  Tab
+} from '@mui/material';
+import { RefreshCw, Calendar as CalendarIcon, List as ListIcon, Briefcase, Package, Settings } from 'lucide-react';
+import { apiService } from '../services/api';
+import type { Equipment, Loan } from '../services/api';
+import EventCard from './EventCard';
+import ProfileModal from './ProfileModal';
+import EquipmentModal from './EquipmentModal';
+import ChatDrawer from './ChatDrawer';
+import RequestEquipmentModal from './RequestEquipmentModal';
+import { useUpdatesBroker } from '../services/useUpdatesBroker';
+import { CalendarView } from './CalendarView';
+import EventFormModal from './EventFormModal';
+import AdminPanelModal from './AdminPanelModal';
+
+export const HomeScreen: React.FC = () => {
+    const muiTheme = useTheme();
+  const [events, setEvents] = useState<any[]>([]);
+  const [equipmentList, setEquipmentList] = useState<Equipment[]>([]);
+  const [loans, setLoans] = useState<Loan[]>([]);
+  const [me, setMe] = useState<any>({});
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState(0);
+  const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [selectedChatEventId, setSelectedChatEventId] = useState<number | null>(null);
+  
+  const [equipmentOpen, setEquipmentOpen] = useState(false);
+  
+  const [locationOpen, setLocationOpen] = useState(false);
+  const [locationEventId, setLocationEventId] = useState<number | null>(null);
+  const [selectedLocationId, setSelectedLocationId] = useState<number | ''>('');
+
+  const [selectedTakeTaskEventId, setSelectedTakeTaskEventId] = useState<number | null>(null);
+  const [requestEqOpen, setRequestEqOpen] = useState(false);
+
+  const [submitOpen, setSubmitOpen] = useState(false);
+  const [selectedSubmitEventId, setSelectedSubmitEventId] = useState<number | null>(null);
+  const [submitLink, setSubmitLink] = useState('');
+  const [submittingWork, setSubmittingWork] = useState(false);
+
+  const [eventFormOpen, setEventFormOpen] = useState(false);
+  const [eventFormId, setEventFormId] = useState<number | null>(null);
+
+  const [adminPanelOpen, setAdminPanelOpen] = useState(false);
+
+  const [adminStatusTab, setAdminStatusTab] = useState('ALL');
+
+  const isMounted = useRef(true);
+
+  const loadData = async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    try {
+      const meData = await apiService.getUserMe();
+      const eventsData = await apiService.getEvents();
+      
+      let equipmentData = equipmentList;
+      let loansData: Loan[] = [];
+      if (meData.features?.equipment_booking === true) {
+        const rawLoans = await apiService.getLoans();
+        loansData = Array.isArray(rawLoans) ? rawLoans : (rawLoans.results || []);
+        
+        const rawEquipment = await apiService.getEquipment();
+        equipmentData = Array.isArray(rawEquipment) ? rawEquipment : (rawEquipment.results || []);
+      }
+
+      const normalizedEvents = Array.isArray(eventsData) ? eventsData : (eventsData.results || []);
+
+      if (isMounted.current) {
+        setMe(meData);
+        setEvents(normalizedEvents);
+        setEquipmentList(equipmentData);
+        setLoans(loansData);
+      }
+    } catch (err) {
+      console.error('Failed to load home screen data:', err);
+    } finally {
+      if (isMounted.current) setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    isMounted.current = true;
+    loadData(true);
+
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
+  useUpdatesBroker(['event', 'equipment', 'loan'], () => {
+    loadData(false);
+  });
+
+  // Handle deep linking from Telegram notifications
+  useEffect(() => {
+    if (events.length > 0 && me.id) {
+      const urlParams = new URLSearchParams(window.location.search);
+      const eventIdStr = urlParams.get('event_id');
+      const openChatParam = urlParams.get('open_chat');
+      
+      if (eventIdStr) {
+        const eventId = parseInt(eventIdStr, 10);
+        if (!isNaN(eventId)) {
+          const targetEvent = events.find((e) => e.id === eventId);
+          if (targetEvent) {
+            const isMyTask = targetEvent.media_participants?.some(
+              (p: any) => p.id === me.id || p.username === me.username
+            );
+            
+            if (isMyTask) {
+              setActiveTab(1);
+            } else {
+              setActiveTab(0);
+            }
+            
+            if (openChatParam === 'true') {
+              handleOpenChat(eventId);
+            }
+            
+            const newUrl = window.location.pathname;
+            window.history.replaceState({}, document.title, newUrl);
+          }
+        }
+      }
+    }
+  }, [events, me]);
+
+  const handleTakeTask = async (eventId: number) => {
+    const event = events.find(e => e.id === eventId);
+    if (event?.locations?.length > 1) {
+      setLocationEventId(eventId);
+      setSelectedLocationId('');
+      setLocationOpen(true);
+      return;
+    }
+    proceedWithTakeTask(eventId, event?.locations?.[0]?.id);
+  };
+
+  const proceedWithTakeTask = async (eventId: number, locationId?: number) => {
+    if (me.features?.equipment_booking !== true || equipmentList.length === 0) {
+      setLoading(true);
+      try {
+        const res = await apiService.takeTask(eventId, [], locationId);
+        if (res.success) {
+          await loadData(false);
+        } else {
+          alert(res.error || 'Не удалось записаться на задачу.');
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    } else {
+      setSelectedTakeTaskEventId(eventId);
+      setSelectedLocationId(locationId ?? '');
+      setEquipmentOpen(true);
+    }
+  };
+
+  const handleLocationConfirm = () => {
+    if (locationEventId === null) return;
+    if (!selectedLocationId) {
+      alert("Выберите локацию");
+      return;
+    }
+    const locId = selectedLocationId as number;
+    setLocationOpen(false);
+    proceedWithTakeTask(locationEventId, locId);
+  };
+
+
+  const handleEquipmentConfirm = async (selectedIds: number[]) => {
+    if (selectedTakeTaskEventId === null) return;
+    setLoading(true);
+    try {
+      const locId = selectedLocationId ? (selectedLocationId as number) : undefined;
+      const res = await apiService.takeTask(selectedTakeTaskEventId, selectedIds, locId);
+      if (res.success) {
+        await loadData(false);
+      } else {
+        alert(res.error || 'Не удалось записаться с выбранным оборудованием.');
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSelectedTakeTaskEventId(null);
+      setLoading(false);
+    }
+  };
+
+  const handleSubmitWorkOpen = (eventId: number) => {
+    setSelectedSubmitEventId(eventId);
+    setSubmitLink('');
+    setSubmitOpen(true);
+  };
+
+  const handleSubmitWorkConfirm = async () => {
+    if (selectedSubmitEventId === null || !submitLink.trim()) return;
+    setSubmittingWork(true);
+    try {
+      const normalizedLink = submitLink.trim().split(/\s+/).map((link: string) => {
+        if (!link) return '';
+        return /^https?:\/\//i.test(link) ? link : `https://${link}`;
+      }).filter(Boolean).join(' ');
+
+      const success = await apiService.submitWork(selectedSubmitEventId, normalizedLink);
+      if (success) {
+        setSubmitOpen(false);
+        await loadData(false);
+      } else {
+        alert('Ошибка при сдаче работы.');
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSubmittingWork(false);
+    }
+  };
+
+  const handleOpenChat = (eventId: number) => {
+    setSelectedChatEventId(eventId);
+    setChatOpen(true);
+  };
+
+  const handleReturnLoan = async (loanId: number) => {
+    setLoading(true);
+    try {
+      const success = await apiService.requestLoanReturn(loanId);
+      if (success) {
+        await loadData(false);
+        alert('Запрос на сдачу техники успешно отправлен.');
+      } else {
+        alert('Не удалось отправить запрос на сдачу.');
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRequestEquipmentConfirm = async (equipmentId: number, quantity: number, eventId: number | null, comment: string, loanStart: string, loanEnd: string) => {
+    setLoading(true);
+    try {
+      const success = await apiService.createLoan(equipmentId, quantity, eventId, comment, loanStart, loanEnd);
+      if (success) {
+        await loadData(false);
+        alert('Запрос на технику успешно создан и ожидает одобрения.');
+      } else {
+        alert('Не удалось отправить запрос на технику.');
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setRequestEqOpen(false);
+      setLoading(false);
+    }
+  };
+
+  const handleDuplicateEvent = async (id: number) => {
+    const event = events.find(e => e.id === id);
+    if (!event) return;
+    setLoading(true);
+    try {
+      const payload = { ...event };
+      delete payload.id;
+      payload.title = `${payload.title} (Копия)`;
+      payload.status = 'PENDING';
+      payload.equipment_ids = event.booked_equipment?.map((eq: any) => eq.id) || [];
+      
+      const success = await apiService.saveEvent(null, payload);
+      if (success) {
+        await loadData(false);
+      } else {
+        alert('Ошибка при дублировании мероприятия.');
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
+  const myEvents = events.filter((e) =>
+    e.media_participants?.some(
+      (p: any) => p.id === me.id || p.username === me.username
+    )
+  );
+
+  const openEvents = events.filter(
+    (e) => (e.status === 'OPEN' || (e.status === 'IN_PROGRESS' && (e.media_participants?.length || 0) < e.max_participants)) && !myEvents.some((m) => m.id === e.id)
+  );
+
+  const isAdmin = me.role === 'MAIN_ADMIN' || me.role === 'ORGANIZER' || me.is_staff || me.is_superuser;
+
+  const currentTabEvents = activeTab === 0 
+    ? (isAdmin 
+        ? events.filter(e => {
+            const matchesStatus = adminStatusTab === 'ALL' || e.status === adminStatusTab;
+            if (!matchesStatus) return false;
+            
+            if (e.status === 'PENDING') {
+              const isCreator = e.responsible_person?.id === me.id;
+              const isSuperAdmin = me.role === 'MAIN_ADMIN' || me.is_staff || me.is_superuser;
+              return isSuperAdmin || isCreator;
+            }
+            return true;
+          })
+        : openEvents
+      ) 
+    : (activeTab === 1 ? myEvents : []);
+
+  const selectedDateEvents = currentTabEvents.filter(e => {
+    const d = new Date(selectedDate);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const dateStr = `${y}-${m}-${day}`;
+    return e.date === dateStr;
+  });
+
+  if (loading && events.length === 0) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', pb: 10 }}>
+      {/* Main Content */}
+      <Box sx={{ flexGrow: 1, px: 2 }} className="fade-in">
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, pt: 2 }}>
+          <Typography variant="h5" sx={{ fontWeight: 800 }}>
+            {activeTab === 0 ? (isAdmin ? 'Задачи' : 'Свободные') : activeTab === 1 ? 'Мои задачи' : 'Склад'}
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            {(activeTab === 0 || activeTab === 1) && (me.role === 'MAIN_ADMIN' || me.role === 'ORGANIZER' || me.is_staff || me.is_superuser) && (
+              <Button 
+                variant="contained" 
+                size="small" 
+                onClick={() => { setEventFormId(null); setEventFormOpen(true); }}
+                sx={{ borderRadius: '12px' }}
+              >
+                Создать
+              </Button>
+            )}
+            {me.role === 'MAIN_ADMIN' && (
+              <IconButton className="soft-card" onClick={() => setAdminPanelOpen(true)} color="primary">
+                <Settings size={20} />
+              </IconButton>
+            )}
+            {(activeTab === 0 || activeTab === 1) && (
+              <IconButton className="soft-card" onClick={() => setViewMode(viewMode === 'list' ? 'calendar' : 'list')} color="primary">
+                {viewMode === 'list' ? <CalendarIcon size={20} /> : <ListIcon size={20} />}
+              </IconButton>
+            )}
+            <IconButton className="soft-card" onClick={() => loadData(true)} color="primary">
+              <RefreshCw size={20} />
+            </IconButton>
+          </Box>
+        </Box>
+        
+        {activeTab === 0 && isAdmin && (
+          <Tabs 
+            value={adminStatusTab} 
+            onChange={(_, v) => setAdminStatusTab(v)} 
+            sx={{ mb: 2.5, minHeight: 36, '& .MuiTab-root': { minHeight: 36, py: 0.5, px: 1, textTransform: 'none', mr: 2, fontWeight: 'bold' } }} 
+            variant="scrollable"
+            scrollButtons="auto"
+            slotProps={{ indicator: { sx: { bottom: 0, height: 3, borderRadius: 1.5 } } }}
+          >
+            <Tab label="Все" value="ALL" />
+            <Tab label="Новые" value="PENDING" />
+            <Tab label="Открыты" value="OPEN" />
+            <Tab label="В работе" value="IN_PROGRESS" />
+            <Tab label="Готово" value="COMPLETED" />
+          </Tabs>
+        )}
+
+        {viewMode === 'calendar' && (activeTab === 0 || activeTab === 1) ? (
+          <Box>
+            <CalendarView
+              events={currentTabEvents}
+              selectedDate={selectedDate}
+              onSelectDate={setSelectedDate}
+            />
+            
+            <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 2, mt: 3, color: 'text.secondary' }}>
+              События на {selectedDate.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}:
+            </Typography>
+
+            {selectedDateEvents.length === 0 ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 4 }}>
+                <Typography color="text.secondary">Нет событий на этот день</Typography>
+              </Box>
+            ) : (
+              selectedDateEvents.map((event) => (
+                <Box key={event.id} className="spring-card">
+                  <EventCard
+                    event={event}
+                    isMyTask={activeTab === 1}
+                    currentUser={me}
+                    onTakeTask={handleTakeTask}
+                    onSubmitWork={handleSubmitWorkOpen}
+                    onOpenChat={handleOpenChat}
+                    onEditEvent={(id) => { setEventFormId(id); setEventFormOpen(true); }}
+                    onDeleteEvent={(id) => { 
+                      if (window.confirm("Удалить мероприятие?")) { 
+                        apiService.deleteEvent(id).then(() => loadData(true)); 
+                      } 
+                    }}
+                    onApproveEvent={(id) => apiService.approveEvent(id).then(() => loadData(true))}
+                    onRejectEvent={(id) => {
+                      if (window.confirm("Отклонить мероприятие?")) {
+                        apiService.rejectEvent(id).then(() => loadData(true));
+                      }
+                    }}
+                    onDuplicateEvent={handleDuplicateEvent}
+                  />
+                </Box>
+              ))
+            )}
+          </Box>
+        ) : (
+          <>
+            {activeTab === 0 && (
+              currentTabEvents.length === 0 ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 8 }}>
+                  <Typography color="text.secondary">{isAdmin ? 'Нет задач' : 'Нет свободных заявок'}</Typography>
+                </Box>
+              ) : (
+                currentTabEvents.map((event) => (
+                  <Box key={event.id} className="spring-card">
+                    <EventCard
+                      event={event}
+                      isMyTask={false}
+                      currentUser={me}
+                      onTakeTask={handleTakeTask}
+                      onSubmitWork={handleSubmitWorkOpen}
+                      onOpenChat={handleOpenChat}
+                      onDeleteEvent={(id) => { 
+                        if (window.confirm("Удалить мероприятие?")) { 
+                          apiService.deleteEvent(id).then(() => loadData(true)); 
+                        } 
+                      }}
+                      onApproveEvent={(id) => apiService.approveEvent(id).then(() => loadData(true))}
+                      onRejectEvent={(id) => {
+                        if (window.confirm("Отклонить мероприятие?")) {
+                          apiService.rejectEvent(id).then(() => loadData(true));
+                        }
+                      }}
+                      onDuplicateEvent={handleDuplicateEvent}
+                    />
+                  </Box>
+                ))
+              )
+            )}
+            {activeTab === 1 && (
+              myEvents.length === 0 ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 8 }}>
+                  <Typography color="text.secondary">Вы еще не взяли задач</Typography>
+                </Box>
+              ) : (
+                myEvents.map((event) => (
+                  <Box key={event.id} className="spring-card">
+                    <EventCard
+                      event={event}
+                      isMyTask={true}
+                      currentUser={me}
+                      onTakeTask={handleTakeTask}
+                      onSubmitWork={handleSubmitWorkOpen}
+                      onOpenChat={handleOpenChat}
+                      onEditEvent={(id) => { setEventFormId(id); setEventFormOpen(true); }}
+                      onDeleteEvent={(id) => { 
+                        if (window.confirm("Удалить мероприятие?")) { 
+                          apiService.deleteEvent(id).then(() => loadData(true)); 
+                        } 
+                      }}
+                      onApproveEvent={(id) => apiService.approveEvent(id).then(() => loadData(true))}
+                      onRejectEvent={(id) => {
+                        if (window.confirm("Отклонить мероприятие?")) {
+                          apiService.rejectEvent(id).then(() => loadData(true));
+                        }
+                      }}
+                      onDuplicateEvent={handleDuplicateEvent}
+                    />
+                  </Box>
+                ))
+              )
+            )}
+          </>
+        )}
+        
+        {activeTab === 2 && me.features?.equipment_booking === true && (
+          <Box className="fade-in">
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+              <Typography variant="h6" sx={{ fontWeight: 'bold' }}>Складской инвентарь</Typography>
+              <Button
+                variant="contained"
+                onClick={() => setRequestEqOpen(true)}
+                sx={{ borderRadius: 4, px: 3 }}
+                className="spring-card"
+              >
+                Запросить технику
+              </Button>
+            </Box>
+
+            {/* Issued loans list */}
+            <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1.5, color: 'text.secondary' }}>
+              НА РУКАХ ({loans.filter(l => l.status === 'ISSUED' || l.status === 'RETURN_REQUESTED').length})
+            </Typography>
+            {loans.filter(l => l.status === 'ISSUED' || l.status === 'RETURN_REQUESTED').length === 0 ? (
+              <Paper variant="outlined" sx={{ p: 3, textAlign: 'center', mb: 4, borderRadius: 4, borderStyle: 'dashed' }}>
+                <Typography variant="body2" color="text.secondary">У вас нет выданного оборудования</Typography>
+              </Paper>
+            ) : (
+              <Box sx={{ mb: 4 }}>
+                {loans.filter(l => l.status === 'ISSUED' || l.status === 'RETURN_REQUESTED').map((loan) => (
+                  <Card key={loan.id} sx={{ p: 2, mb: 1.5, borderRadius: 4 }} className="spring-card">
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <Box>
+                        <Typography sx={{ fontWeight: 'bold' }}>{loan.equipment?.name}</Typography>
+                        {loan.equipment?.serial_number && (
+                           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontFamily: 'monospace' }}>
+                             S/N: {loan.equipment.serial_number}
+                           </Typography>
+                        )}
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                          Количество: {loan.quantity} шт.
+                        </Typography>
+                        {loan.loan_start && loan.loan_end && (
+                          <Typography variant="caption" color="primary" sx={{ display: 'block', mt: 0.5, fontWeight: 'medium' }}>
+                            Период: {new Date(loan.loan_start).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} - {new Date(loan.loan_end).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                          </Typography>
+                        )}
+
+                        {loan.event_title && (
+                          <Typography variant="caption" color="primary" sx={{ display: 'block', mt: 0.5 }}>
+                            Задача: {loan.event_title}
+                          </Typography>
+                        )}
+                      </Box>
+                      <Box sx={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
+                        {loan.status === 'ISSUED' ? (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => handleReturnLoan(loan.id)}
+                            sx={{ borderRadius: 3, textTransform: 'none' }}
+                          >
+                            Сдать технику
+                          </Button>
+                        ) : (
+                          <Chip label="Ожидает возврата" color="info" size="small" variant="outlined" sx={{ borderRadius: 2 }} />
+                        )}
+                      </Box>
+                    </Box>
+                  </Card>
+                ))}
+              </Box>
+            )}
+
+            {/* Requested and history list */}
+            <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1.5, color: 'text.secondary' }}>
+              ЗАПРОСЫ И ИСТОРИЯ
+            </Typography>
+            {loans.filter(l => l.status === 'REQUESTED' || l.status === 'RETURNED' || l.status === 'REJECTED').length === 0 ? (
+              <Paper variant="outlined" sx={{ p: 3, textAlign: 'center', borderRadius: 4, borderStyle: 'dashed' }}>
+                <Typography variant="body2" color="text.secondary">История запросов пуста</Typography>
+              </Paper>
+            ) : (
+              <Box sx={{ pb: 4 }}>
+                {loans.filter(l => l.status === 'REQUESTED' || l.status === 'RETURNED' || l.status === 'REJECTED').map((loan) => (
+                  <Card key={loan.id} sx={{ p: 2, mb: 1.5, borderRadius: 4, opacity: loan.status === 'RETURNED' ? 0.7 : 1 }} className="spring-card">
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Box>
+                        <Typography variant="body2" sx={{ fontWeight: 'bold' }}>{loan.equipment?.name} ({loan.quantity} шт.)</Typography>
+                        {loan.loan_start && loan.loan_end && (
+                          <Typography variant="caption" color="primary" sx={{ display: 'block', mt: 0.5, fontWeight: 'medium' }}>
+                            Период: {new Date(loan.loan_start).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} - {new Date(loan.loan_end).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                          </Typography>
+                        )}
+                        {loan.requested_at && (
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                            Создан: {new Date(loan.requested_at).toLocaleDateString()}
+                          </Typography>
+                        )}
+                      </Box>
+
+                      <Chip
+                        label={
+                          loan.status === 'REQUESTED' ? 'Ожидает одобрения' :
+                          loan.status === 'RETURNED' ? 'Возвращено' : 'Отклонено'
+                        }
+                        color={
+                          loan.status === 'REQUESTED' ? 'warning' :
+                          loan.status === 'RETURNED' ? 'default' : 'error'
+                        }
+                        size="small"
+                        sx={{ borderRadius: 2 }}
+                      />
+                    </Box>
+                  </Card>
+                ))}
+              </Box>
+            )}
+          </Box>
+        )}
+      </Box>
+
+      {/* Fixed Bottom Navigation */}
+      <Paper 
+        sx={{ 
+          position: 'fixed', 
+          bottom: 0, 
+          left: 0, 
+          right: 0, 
+          pb: 'env(safe-area-inset-bottom)',
+          bgcolor: alpha(muiTheme.palette.background.paper, 0.85),
+          backdropFilter: 'blur(20px)',
+          borderTop: `1px solid ${alpha(muiTheme.palette.divider, 0.1)}`,
+          zIndex: 1000
+        }} 
+        elevation={0}
+      >
+        <BottomNavigation
+          showLabels
+          value={activeTab}
+          onChange={(event, newValue) => {
+            setActiveTab(newValue);
+          }}
+          sx={{ bgcolor: 'transparent', height: 64 }}
+        >
+          <BottomNavigationAction 
+            label={isAdmin ? 'Задачи' : 'Свободные'} 
+            icon={<ListIcon size={24} />} 
+            sx={{
+              '&.Mui-selected': { color: muiTheme.palette.primary.main, '& .lucide': { strokeWidth: 2.5 } }
+            }}
+          />
+          <BottomNavigationAction 
+            label="Мои задачи" 
+            icon={<Briefcase size={24} />} 
+            sx={{
+              '&.Mui-selected': { color: muiTheme.palette.primary.main, '& .lucide': { strokeWidth: 2.5 } }
+            }}
+          />
+          {me.features?.equipment_booking === true && (
+            <BottomNavigationAction 
+              label="Склад" 
+              icon={<Package size={24} />} 
+              sx={{
+                '&.Mui-selected': { color: muiTheme.palette.primary.main, '& .lucide': { strokeWidth: 2.5 } }
+              }}
+            />
+          )}
+        </BottomNavigation>
+      </Paper>
+
+      {/* Modals and Overlays */}
+      {profileOpen && (
+        <ProfileModal
+          open={profileOpen}
+          onClose={() => setProfileOpen(false)}
+          user={me}
+          onSave={() => loadData(false)}
+        />
+      )}
+
+
+      {/* Выбор локации */}
+      <Dialog open={locationOpen} onClose={() => setLocationOpen(false)} fullWidth maxWidth="xs" sx={{ '& .MuiDialog-paper': { borderRadius: '24px' } }}>
+        <DialogTitle sx={{ fontWeight: 900 }}>Выберите локацию</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" sx={{ mb: 2 }}>Для этого мероприятия доступно несколько локаций. На какой из них вы будете работать?</Typography>
+          <TextField
+            select
+            fullWidth
+            label="Локация"
+            value={selectedLocationId}
+            onChange={e => setSelectedLocationId(Number(e.target.value))}
+          >
+            {locationEventId && events.find(e => e.id === locationEventId)?.locations?.map((l: any) => (
+              <MenuItem key={l.id} value={l.id}>{l.name}</MenuItem>
+            ))}
+          </TextField>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setLocationOpen(false)}>Отмена</Button>
+          <Button variant="contained" onClick={handleLocationConfirm}>Продолжить</Button>
+        </DialogActions>
+      </Dialog>
+
+      {equipmentOpen && (
+        <EquipmentModal
+          open={equipmentOpen}
+          onClose={() => {
+            setEquipmentOpen(false);
+            setSelectedTakeTaskEventId(null);
+          }}
+          equipment={equipmentList}
+          onConfirm={handleEquipmentConfirm}
+        />
+      )}
+
+      {chatOpen && selectedChatEventId !== null && (
+        <ChatDrawer
+          open={chatOpen}
+          onClose={() => {
+            setChatOpen(false);
+            setSelectedChatEventId(null);
+          }}
+          eventId={selectedChatEventId}
+          currentUser={me}
+        />
+      )}
+
+      {requestEqOpen && (
+        <RequestEquipmentModal
+          open={requestEqOpen}
+          onClose={() => setRequestEqOpen(false)}
+          equipmentList={equipmentList}
+          myEvents={myEvents}
+          onConfirm={handleRequestEquipmentConfirm}
+        />
+      )}
+
+      {/* Dialog for submitting result link */}
+      <Dialog 
+        open={submitOpen} 
+        onClose={() => setSubmitOpen(false)} 
+        fullWidth 
+        maxWidth="xs"
+        sx={{
+          '& .MuiDialog-paper': { borderRadius: '32px', padding: '8px' }
+        }}
+      >
+        <DialogTitle sx={{ fontWeight: 'bold' }}>Сдача работы</DialogTitle>
+        <DialogContent>
+          <TextField
+            label="Ссылка на диск/облако"
+            value={submitLink}
+            onChange={(e) => setSubmitLink(e.target.value)}
+            fullWidth
+            required
+            variant="outlined"
+            margin="normal"
+            autoFocus
+            sx={{ '& .MuiOutlinedInput-root': { borderRadius: 3 } }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ p: 2, pt: 0 }}>
+          <Button onClick={() => setSubmitOpen(false)} disabled={submittingWork} sx={{ borderRadius: 3 }}>
+            Отмена
+          </Button>
+          <Button
+            onClick={handleSubmitWorkConfirm}
+            variant="contained"
+            disabled={!submitLink.trim() || submittingWork}
+            sx={{ borderRadius: 3 }}
+          >
+            {submittingWork ? 'Отправка...' : 'Отправить'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <EventFormModal 
+        open={eventFormOpen}
+        onClose={() => setEventFormOpen(false)}
+        eventId={eventFormId}
+        onSave={() => loadData(true)}
+        equipmentList={equipmentList}
+      />
+      {me.role === 'MAIN_ADMIN' && (
+        <AdminPanelModal
+          open={adminPanelOpen}
+          onClose={() => setAdminPanelOpen(false)}
+        />
+      )}
+
+    </Box>
+  );
+};
+
+export default HomeScreen;

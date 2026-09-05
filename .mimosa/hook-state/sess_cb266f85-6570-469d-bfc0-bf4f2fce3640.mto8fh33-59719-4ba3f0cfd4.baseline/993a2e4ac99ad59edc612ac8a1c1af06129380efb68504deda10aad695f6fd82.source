@@ -1,0 +1,271 @@
+import React, { createContext, useState, useEffect, useMemo } from 'react';
+import type { ReactNode } from 'react';
+import { createTheme, ThemeProvider, CssBaseline } from '@mui/material';
+
+export type ThemePreset = 'gost-light' | 'gost-dark' | 'tg-light' | 'tg-dark' | 'custom';
+
+interface ThemeSettingsContextType {
+  fontSize: number;
+  setFontSize: (size: number) => void;
+  themePreset: ThemePreset;
+  setThemePreset: (preset: ThemePreset) => void;
+  customColor: string;
+  setCustomColor: (color: string) => void;
+  hasCompletedSetup: boolean;
+  completeSetup: () => void;
+  openSetup: () => void;
+  
+  mode: 'light' | 'dark';
+  toggleColorMode: () => void;
+  brandName: string;
+  logoUrl: string;
+}
+
+export const ThemeSettingsContext = createContext<ThemeSettingsContextType>({
+  fontSize: 16,
+  setFontSize: () => {},
+  themePreset: 'gost-light',
+  setThemePreset: () => {},
+  customColor: '#005B9F',
+  setCustomColor: () => {},
+  hasCompletedSetup: false,
+  completeSetup: () => {},
+  openSetup: () => {},
+  mode: 'light',
+  toggleColorMode: () => {},
+  brandName: 'Media Events',
+  logoUrl: 'https://cdn-icons-png.flaticon.com/512/3003/3003310.png'
+});
+
+export const ThemeSettingsProvider = ({ children }: { children: ReactNode }) => {
+  const [fontSize, setFontSize] = useState<number>(() => {
+    const saved = localStorage.getItem('app_font_size');
+    return saved ? parseInt(saved, 10) : 16;
+  });
+
+  const [themePreset, setThemePreset] = useState<ThemePreset>(() => {
+    return (localStorage.getItem('app_theme_preset') as ThemePreset) || 'gost-light';
+  });
+
+  const [customColor, setCustomColor] = useState<string>(() => {
+    return localStorage.getItem('app_custom_color') || '#005B9F';
+  });
+
+  const [hasCompletedSetup, setHasCompletedSetup] = useState<boolean>(() => {
+    return localStorage.getItem('app_setup_completed') === 'true';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('app_font_size', fontSize.toString());
+  }, [fontSize]);
+
+  useEffect(() => {
+    localStorage.setItem('app_theme_preset', themePreset);
+  }, [themePreset]);
+
+  useEffect(() => {
+    localStorage.setItem('app_custom_color', customColor);
+  }, [customColor]);
+
+  const completeSetup = () => {
+    localStorage.setItem('app_setup_completed', 'true');
+    setHasCompletedSetup(true);
+  };
+
+  const openSetup = () => {
+    localStorage.setItem('app_setup_completed', 'false');
+    setHasCompletedSetup(false);
+  };
+
+  const theme = useMemo(() => {
+    let mode: 'light' | 'dark' = 'light';
+    let primaryMain = '#005B9F';
+    let primaryContrast = '#FFFFFF';
+    let bgDefault = '#e0e5ec';
+    let textPrimary = '#1C1B1F';
+    let shadowLight = '#ffffff';
+    let shadowDark = '#a3b1c6';
+    let softBorder = 'rgba(255,255,255,0.4)';
+
+    switch (themePreset) {
+      case 'gost-light':
+        mode = 'light';
+        primaryMain = '#0056D2'; 
+        bgDefault = '#e0e5ec';
+        shadowLight = '#ffffff';
+        shadowDark = '#a3b1c6';
+        textPrimary = '#1C1B1F';
+        break;
+      case 'gost-dark':
+        mode = 'dark';
+        primaryMain = '#A8C7FA'; 
+        primaryContrast = '#000000';
+        bgDefault = '#1a1f24';
+        shadowLight = '#232a30';
+        shadowDark = '#111418';
+        softBorder = 'rgba(255,255,255,0.05)';
+        textPrimary = '#E3E2E6';
+        break;
+      case 'tg-light':
+        mode = 'light';
+        primaryMain = '#3390EC';
+        bgDefault = '#eef2f5';
+        shadowLight = '#ffffff';
+        shadowDark = '#cbd5e1';
+        textPrimary = '#000000';
+        break;
+      case 'tg-dark':
+        mode = 'dark';
+        primaryMain = '#3390EC';
+        bgDefault = '#18222d';
+        shadowLight = '#1e2b38';
+        shadowDark = '#121922';
+        softBorder = 'rgba(255,255,255,0.05)';
+        textPrimary = '#FFFFFF';
+        break;
+      case 'custom':
+        mode = 'light';
+        primaryMain = customColor;
+        bgDefault = '#e0e5ec';
+        shadowLight = '#ffffff';
+        shadowDark = '#a3b1c6';
+        textPrimary = '#1C1B1F';
+        break;
+    }
+
+    const root = document.documentElement;
+    root.style.setProperty('--soft-bg', bgDefault);
+    root.style.setProperty('--soft-shadow-light', shadowLight);
+    root.style.setProperty('--soft-shadow-dark', shadowDark);
+    root.style.setProperty('--soft-inset-light', shadowLight);
+    root.style.setProperty('--soft-inset-dark', shadowDark);
+    root.style.setProperty('--soft-border', softBorder);
+    root.style.setProperty('--soft-text', textPrimary);
+
+    return createTheme({
+      palette: {
+        mode,
+        primary: {
+          main: primaryMain,
+          contrastText: primaryContrast,
+        },
+        background: {
+          default: bgDefault,
+          paper: bgDefault,
+        },
+        text: {
+          primary: textPrimary,
+        }
+      },
+      typography: {
+        fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
+        fontSize: fontSize,
+        htmlFontSize: 16,
+        h1: { fontSize: `${fontSize * 2.5}px`, fontWeight: 700 },
+        h2: { fontSize: `${fontSize * 2}px`, fontWeight: 700 },
+        h3: { fontSize: `${fontSize * 1.75}px`, fontWeight: 600 },
+        h4: { fontSize: `${fontSize * 1.5}px`, fontWeight: 600 },
+        h5: { fontSize: `${fontSize * 1.25}px`, fontWeight: 600 },
+        h6: { fontSize: `${fontSize * 1.15}px`, fontWeight: 600 },
+        body1: { fontSize: `${fontSize}px` },
+        body2: { fontSize: `${fontSize * 0.875}px` },
+        button: { fontSize: `${fontSize}px`, fontWeight: 600 },
+      },
+      shape: {
+        borderRadius: 24, 
+      },
+      components: {
+        MuiButton: {
+          styleOverrides: {
+            root: {
+              textTransform: 'none',
+              borderRadius: 100, 
+              padding: '10px 24px',
+              '&.MuiButton-contained': {
+                boxShadow: `6px 6px 12px ${shadowDark}, -6px -6px 12px ${shadowLight}`,
+                '&:active': {
+                  boxShadow: `inset 4px 4px 8px ${shadowDark}, inset -4px -4px 8px ${shadowLight}`,
+                  transform: 'scale(0.98)',
+                }
+              }
+            }
+          }
+        },
+        MuiCard: {
+          styleOverrides: {
+            root: {
+              backgroundImage: 'none',
+              backgroundColor: bgDefault,
+              boxShadow: `8px 8px 16px ${shadowDark}, -8px -8px 16px ${shadowLight}`,
+              border: `1px solid ${softBorder}`,
+              borderRadius: 24,
+            }
+          }
+        },
+        MuiPaper: {
+          styleOverrides: {
+            root: {
+              backgroundImage: 'none',
+              backgroundColor: bgDefault,
+            },
+            elevation1: {
+              boxShadow: `8px 8px 16px ${shadowDark}, -8px -8px 16px ${shadowLight}`,
+            },
+            elevation2: {
+              boxShadow: `10px 10px 20px ${shadowDark}, -10px -10px 20px ${shadowLight}`,
+            },
+            elevation4: {
+              boxShadow: `12px 12px 24px ${shadowDark}, -12px -12px 24px ${shadowLight}`,
+            }
+          }
+        },
+        MuiOutlinedInput: {
+          styleOverrides: {
+            root: {
+              borderRadius: 16,
+              backgroundColor: bgDefault,
+              boxShadow: `inset 4px 4px 8px ${shadowDark}, inset -4px -4px 8px ${shadowLight}`,
+              border: 'none',
+              '& fieldset': {
+                border: 'none',
+              }
+            }
+          }
+        },
+        MuiDialog: {
+          styleOverrides: {
+            paper: {
+              backgroundColor: bgDefault,
+              boxShadow: `12px 12px 30px ${shadowDark}, -12px -12px 30px ${shadowLight}`,
+              border: `1px solid ${softBorder}`,
+              backgroundImage: 'none',
+            }
+          }
+        }
+      }
+    });
+  }, [fontSize, themePreset, customColor]);
+
+  const toggleColorMode = () => {
+    if (themePreset.includes('light')) setThemePreset('gost-dark');
+    else setThemePreset('gost-light');
+  };
+
+  return (
+    <ThemeSettingsContext.Provider value={{
+      fontSize, setFontSize,
+      themePreset, setThemePreset,
+      customColor, setCustomColor,
+      hasCompletedSetup, completeSetup, openSetup,
+      mode: theme.palette.mode,
+      toggleColorMode,
+      brandName: 'Media Events',
+      logoUrl: 'https://cdn-icons-png.flaticon.com/512/3003/3003310.png'
+    }}>
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        {children}
+      </ThemeProvider>
+    </ThemeSettingsContext.Provider>
+  );
+};

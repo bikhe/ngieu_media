@@ -1,0 +1,215 @@
+import React, { useState } from 'react';
+import {
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  TextField,
+  Stack,
+  } from '@mui/material';
+
+interface EquipmentItem {
+  id: number;
+  name: string;
+  available_quantity?: number;
+}
+
+interface EventItem {
+  id: number;
+  title: string;
+  date: string;
+  time?: string;
+  end_time?: string;
+}
+
+interface RequestEquipmentModalProps {
+  open: boolean;
+  onClose: () => void;
+  equipmentList: EquipmentItem[];
+  myEvents: EventItem[];
+  onConfirm: (
+    equipmentId: number,
+    quantity: number,
+    eventId: number | null,
+    comment: string,
+    loanStart: string,
+    loanEnd: string
+  ) => Promise<void>;
+}
+
+export const RequestEquipmentModal: React.FC<RequestEquipmentModalProps> = ({
+  open,
+  onClose,
+  equipmentList,
+  myEvents,
+  onConfirm,
+}) => {
+  const [selectedEqId, setSelectedEqId] = useState<number | ''>('');
+  const [quantity, setQuantity] = useState<number>(1);
+  const [selectedEventId, setSelectedEventId] = useState<number | 'none'>('none');
+  const [comment, setComment] = useState<string>('');
+  const [loanStart, setLoanStart] = useState<string>('');
+  const [loanEnd, setLoanEnd] = useState<string>('');
+  const [submitting, setSubmitting] = useState<boolean>(false);
+
+  React.useEffect(() => {
+    if (selectedEventId !== 'none') {
+      const evt = myEvents.find((e) => e.id === selectedEventId);
+      if (evt) {
+        const start = evt.time ? `${evt.date}T${evt.time.slice(0, 5)}` : `${evt.date}T12:00`;
+        const end = evt.end_time ? `${evt.date}T${evt.end_time.slice(0, 5)}` : `${evt.date}T14:00`;
+        setLoanStart(start);
+        setLoanEnd(end);
+      }
+    } else {
+      const now = new Date();
+      const formatDate = (d: Date) => {
+        const pad = (n: number) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:00`;
+      };
+      setLoanStart(formatDate(now));
+      const inTwoHours = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+      setLoanEnd(formatDate(inTwoHours));
+    }
+  }, [selectedEventId, myEvents]);
+
+  const selectedEq = equipmentList.find((e) => e.id === selectedEqId);
+  const maxQty = selectedEq?.available_quantity ?? 1;
+
+  const handleSubmit = async () => {
+    if (selectedEqId === '') return;
+    if (!loanStart || !loanEnd) {
+      alert("Укажите время начала и окончания бронирования");
+      return;
+    }
+    if (new Date(loanStart) >= new Date(loanEnd)) {
+      alert("Время начала должно быть раньше времени окончания");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const eventId = selectedEventId === 'none' ? null : selectedEventId;
+      await onConfirm(selectedEqId, quantity, eventId, comment, loanStart, loanEnd);
+      onClose();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+
+  return (
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
+      <DialogTitle sx={{ fontWeight: 'bold' }}>Запрос оборудования</DialogTitle>
+      <DialogContent>
+        <Stack spacing={2.5} sx={{ mt: 1 }}>
+          <FormControl fullWidth>
+            <InputLabel id="eq-select-label">Выберите оборудование</InputLabel>
+            <Select
+              labelId="eq-select-label"
+              value={selectedEqId}
+              label="Выберите оборудование"
+              onChange={(e) => {
+                setSelectedEqId(Number(e.target.value));
+                setQuantity(1);
+              }}
+            >
+              {equipmentList
+                .filter((eq) => (eq.available_quantity ?? 0) > 0)
+                .map((eq) => (
+                  <MenuItem key={eq.id} value={eq.id}>
+                    {eq.name} (Доступно: {eq.available_quantity ?? 0} шт.)
+                  </MenuItem>
+                ))}
+              {equipmentList.filter((eq) => (eq.available_quantity ?? 0) > 0).length === 0 && (
+                <MenuItem disabled>Нет доступного оборудования</MenuItem>
+              )}
+            </Select>
+          </FormControl>
+
+          {selectedEq && (
+            <TextField
+              type="number"
+              label="Количество"
+              value={quantity}
+              onChange={(e) => {
+                const val = Math.max(1, Math.min(maxQty, parseInt(e.target.value) || 1));
+                setQuantity(val);
+              }}
+              slotProps={{ htmlInput: { min: 1, max: maxQty } }}
+              helperText={`Максимум: ${maxQty} шт.`}
+              fullWidth
+            />
+          )}
+
+          <FormControl fullWidth>
+            <InputLabel id="event-select-label">Связать с задачей (опционально)</InputLabel>
+            <Select
+              labelId="event-select-label"
+              value={selectedEventId}
+              label="Связать с задачей (опционально)"
+              onChange={(e) => setSelectedEventId(e.target.value as number | 'none')}
+            >
+              <MenuItem value="none">Не связывать</MenuItem>
+              {myEvents.map((evt) => (
+                <MenuItem key={evt.id} value={evt.id}>
+                  {evt.title}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <TextField
+            type="datetime-local"
+            label="С какого времени"
+            value={loanStart}
+            onChange={(e) => setLoanStart(e.target.value)}
+            slotProps={{ inputLabel: { shrink: true } }}
+            fullWidth
+            required
+          />
+
+          <TextField
+            type="datetime-local"
+            label="До какого времени"
+            value={loanEnd}
+            onChange={(e) => setLoanEnd(e.target.value)}
+            slotProps={{ inputLabel: { shrink: true } }}
+            fullWidth
+            required
+          />
+
+          <TextField
+            label="Цель получения / Комментарий"
+            multiline
+            rows={2}
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            fullWidth
+          />
+
+        </Stack>
+      </DialogContent>
+      <DialogActions sx={{ p: 2, pt: 0 }}>
+        <Button onClick={onClose} disabled={submitting}>
+          Отмена
+        </Button>
+        <Button
+          onClick={handleSubmit}
+          variant="contained"
+          disabled={selectedEqId === '' || submitting}
+        >
+          {submitting ? 'Отправка...' : 'Отправить запрос'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+};
+
+export default RequestEquipmentModal;
