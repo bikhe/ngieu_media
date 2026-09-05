@@ -146,14 +146,18 @@ AUTH_USER_MODEL = 'events.User'
 # Настройки CORS (чтобы React и Flutter могли делать запросы)
 CORS_ALLOW_ALL_ORIGINS = os.getenv('CORS_ALLOW_ALL_ORIGINS', 'False').lower() in ('true', '1', 't')  # Secure default: deny all origins unless explicitly enabled
 CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', 'https://admin.pivas.su,https://mobile.pivas.su').split(',')
+CORS_ALLOW_CREDENTIALS = True  # httpOnly-cookie аутентификация
 
 # Настройки доверенных источников для CSRF (необходимо для Django Admin по HTTPS)
-CSRF_TRUSTED_ORIGINS = os.getenv('CSRF_TRUSTED_ORIGINS', 'https://api.pivas.su,https://admin.pivas.su,https://mobile.pivas.su').split(',')
+CSRF_TRUSTED_ORIGINS = os.getenv(
+    'CSRF_TRUSTED_ORIGINS',
+    'https://api.pivas.su,https://admin.pivas.su,https://mobile.pivas.su,http://localhost:5173,http://localhost:8000'
+).split(',')
 
 # Настройки Django REST Framework
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'events.authentication.CookieJWTAuthentication',
     ),
     'DEFAULT_FILTER_BACKENDS': (
         'django_filters.rest_framework.DjangoFilterBackend',
@@ -166,6 +170,15 @@ SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(days=1),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
 }
+
+# JWT в httpOnly-cookie: токены недоступны JS, поэтому XSS не может их украсть.
+# Frontend ходит с withCredentials; для unsafe-методов отправляет X-CSRFToken.
+JWT_AUTH_COOKIE = True
+JWT_ACCESS_COOKIE = 'access'
+JWT_REFRESH_COOKIE = 'refresh'
+JWT_COOKIE_SECURE = os.getenv('JWT_COOKIE_SECURE', str(not DEBUG)).lower() in ('true', '1', 't')
+JWT_COOKIE_SAMESITE = os.getenv('JWT_COOKIE_SAMESITE', 'Lax')  # admin/mobile — поддомены одного сайта
+CSRF_COOKIE_HTTPONLY = False  # JS читает csrftoken и шлёт его в X-CSRFToken
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 

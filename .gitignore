@@ -5,7 +5,7 @@ backend/.venv/
 backend/api/.venv/
 backend/api/.venv2/
 venv/
-__pycache__/
+__pycache__*/
 *.pyc
 *.pyo
 *.pyd
@@ -33,6 +33,11 @@ media_app/**/*.jks
 .vscode/
 .idea/
 deploy.md
+
+# --- Local agent tooling state ---
+.mimosa/
+.zcode/
+.agents/
 
 # Production secrets
 backend/api/.env.prod

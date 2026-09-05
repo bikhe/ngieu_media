@@ -97,30 +97,64 @@ export interface Equipment {
 }
 
 // Base API URL configuration
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '/api',
+  baseURL: API_BASE_URL,
+  withCredentials: true, // send/receive the httpOnly auth cookies
 });
 
-// Request interceptor to attach JWT token
-api.interceptors.request.use(async (config) => {
-  const token = localStorage.getItem('access');
-  if (token && config.headers) {
-    config.headers.Authorization = `Bearer ${token}`;
+// Read the CSRF cookie (set by the backend at login) for unsafe methods.
+const getCsrfToken = (): string => {
+  const match = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]*)/);
+  return match ? decodeURIComponent(match[1]) : '';
+};
+
+// Attach the CSRF token to every unsafe request; required by the backend for
+// cookie-authenticated POST/PUT/PATCH/DELETE.
+api.interceptors.request.use((config) => {
+  const method = (config.method || 'get').toLowerCase();
+  if (['post', 'put', 'patch', 'delete'].includes(method) && config.headers) {
+    config.headers['X-CSRFToken'] = getCsrfToken();
   }
   return config;
 });
 
-// Response interceptor to handle token expiry (401 Unauthorized)
+// Single-flight session refresh: on a 401, exchange the refresh cookie for a
+// fresh access cookie once, then retry the original request.
+let refreshPromise: Promise<boolean> | null = null;
+const refreshSession = (): Promise<boolean> => {
+  if (!refreshPromise) {
+    refreshPromise = axios
+      .post(`${API_BASE_URL}/token/refresh/`, {}, { withCredentials: true })
+      .then(() => true)
+      .catch(() => false)
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+  return refreshPromise;
+};
+
+interface RetriableConfig {
+  __retried?: boolean;
+}
+
+// Response interceptor: transparently refresh an expired session.
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      const url = error.config?.url || '';
-      if (!url.includes('/token/') && !url.includes('/telegram/')) {
-        localStorage.removeItem('access');
-        localStorage.removeItem('refresh');
-        // Reload page to redirect back to login state
-        window.location.reload();
+  async (error) => {
+    const original = error.config as (RetriableConfig & { url?: string }) | undefined;
+    const url = original?.url || '';
+    const isAuthCall = url.includes('/token/') || url.includes('/telegram/');
+    // No csrftoken cookie means the user never logged in — skip the refresh.
+    const hasSession = document.cookie.includes('csrftoken=');
+
+    if (error.response?.status === 401 && !isAuthCall && hasSession && original && !original.__retried) {
+      original.__retried = true;
+      const refreshed = await refreshSession();
+      if (refreshed) {
+        return api(original);
       }
     }
     return Promise.reject(error);
@@ -130,13 +164,9 @@ api.interceptors.response.use(
 export const apiService = {
   async login(username: string, password: string): Promise<boolean> {
     try {
+      // The backend sets httpOnly auth cookies; nothing to store client-side.
       const res = await api.post('/token/', { username, password });
-      if (res.status === 200 && res.data.access) {
-        localStorage.setItem('access', res.data.access);
-        localStorage.setItem('refresh', res.data.refresh);
-        return true;
-      }
-      return false;
+      return res.status === 200;
     } catch {
       return false;
     }
@@ -155,9 +185,12 @@ export const apiService = {
     }
   },
 
-  logout(): void {
-    localStorage.removeItem('access');
-    localStorage.removeItem('refresh');
+  async logout(): Promise<void> {
+    try {
+      await api.post('/token/logout/');
+    } catch {
+      // Clearing cookies server-side failed — proceed with the local reload.
+    }
     window.location.reload();
   },
 
@@ -378,15 +411,11 @@ export const apiService = {
     }
   },
 
-  async telegramLogin(initData: string): Promise<{ access: string; refresh: string } | null> {
+  async telegramLogin(initData: string): Promise<AppUser | null> {
     try {
-      const res = await api.post('/telegram/auth/', { init_data: initData });
-      if (res.status === 200 && res.data.access) {
-        localStorage.setItem('access', res.data.access);
-        localStorage.setItem('refresh', res.data.refresh);
-        return res.data;
-      }
-      return null;
+      // The backend sets httpOnly auth cookies and returns the user payload.
+      const res = await api.post<{ status: string; user: AppUser }>('/telegram/auth/', { init_data: initData });
+      return res.status === 200 ? res.data.user : null;
     } catch {
       return null;
     }
@@ -399,12 +428,7 @@ export const apiService = {
         invite_code: inviteCode,
         init_data: initData,
       });
-      if (res.status === 200 && res.data.access) {
-        localStorage.setItem('access', res.data.access);
-        localStorage.setItem('refresh', res.data.refresh);
-        return true;
-      }
-      return false;
+      return res.status === 200;
     } catch {
       return false;
     }

@@ -72,9 +72,7 @@ export const MainLayout = () => {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('access');
-    localStorage.removeItem('refresh');
-    window.location.reload();
+    void apiService.logout();
   };
 
   const adminMenu: { title: string; path: string; icon: React.ReactNode; disabled?: boolean }[] = [

@@ -48,12 +48,6 @@ const RequireAuth = ({ children, requireAdmin = false }: { children: React.React
 
   useEffect(() => {
     const checkAuth = async () => {
-      const hasToken = localStorage.getItem('access') !== null;
-      if (!hasToken) {
-        setLoading(false);
-        return;
-      }
-
       try {
         const me = await apiService.getUserMe();
         if (me && me.id) {
@@ -64,6 +58,7 @@ const RequireAuth = ({ children, requireAdmin = false }: { children: React.React
           ));
         }
       } catch (err) {
+        // 401 — no valid session cookie; the user stays unauthenticated.
         console.error(err);
       } finally {
         setLoading(false);
@@ -144,11 +139,18 @@ function AppContent() {
       if (isTWA) {
         try {
           const loginRes = await apiService.telegramLogin(tg.initData);
-          if (!loginRes || !loginRes.access) {
+          if (!loginRes) {
             const unsafeUser = tg.initDataUnsafe?.user;
             if (unsafeUser) {
               setTwaUser(unsafeUser);
             }
+          } else {
+            setTwaUser({
+              id: loginRes.id,
+              username: loginRes.username,
+              first_name: loginRes.first_name || '',
+              last_name: loginRes.last_name,
+            });
           }
         } catch (err) {
           console.error('TWA auto-login failed:', err);

@@ -1,4 +1,4 @@
-import { test, expect, Page } from '@playwright/test';
+import { test, expect, Page, APIRequestContext, request as playwrightRequest } from '@playwright/test';
 
 const API_BASE = 'http://localhost:8000/api';
 
@@ -8,18 +8,18 @@ const E2E_ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD;
 const E2E_MEDIA_USER = process.env.E2E_MEDIA_USER ?? 'testdata_operator';
 const E2E_MEDIA_PASSWORD = process.env.E2E_MEDIA_PASSWORD;
 
-// Helper: Get JWT Access Token
-async function getAuthToken(username = E2E_ADMIN_USER, password = E2E_ADMIN_PASSWORD): Promise<string> {
-  const res = await fetch(`${API_BASE}/token/`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password }),
-  });
-  if (!res.ok) {
-    throw new Error(`Failed to authenticate as ${username}: ${res.statusText}`);
+// Helper: Log in via the cookie-based token endpoint. Returns an API request
+// context whose cookie jar holds the httpOnly auth cookies.
+async function loginSession(username = E2E_ADMIN_USER, password = E2E_ADMIN_PASSWORD): Promise<APIRequestContext> {
+  if (!password) {
+    throw new Error(`E2E password for "${username}" is not set (set E2E_ADMIN_PASSWORD / E2E_MEDIA_PASSWORD)`);
   }
-  const data = await res.json();
-  return data.access;
+  const session = await playwrightRequest.newContext();
+  const res = await session.post(`${API_BASE}/token/`, { data: { username, password } });
+  if (!res.ok()) {
+    throw new Error(`Failed to authenticate as ${username}: ${res.status()}`);
+  }
+  return session;
 }
 
 test.beforeEach(async ({ page }) => {
@@ -28,19 +28,23 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-// Helper: Authenticate Playwright Page
+// Helper: Authenticate Playwright Page (auth cookies are shared with the page)
 async function authenticatePage(page: Page, username = E2E_ADMIN_USER, password = E2E_ADMIN_PASSWORD) {
-  const token = await getAuthToken(username, password);
-  await page.addInitScript((tok) => {
-    localStorage.setItem('access', tok);
-    localStorage.setItem('refresh', tok);
+  if (!password) {
+    throw new Error(`E2E password for "${username}" is not set (set E2E_ADMIN_PASSWORD / E2E_MEDIA_PASSWORD)`);
+  }
+  const res = await page.request.post(`${API_BASE}/token/`, { data: { username, password } });
+  if (!res.ok()) {
+    throw new Error(`Failed to authenticate page as ${username}: ${res.status()}`);
+  }
+  await page.addInitScript(() => {
     localStorage.setItem('app_setup_completed', 'true');
-  }, token);
+  });
   await page.goto('/', { waitUntil: 'domcontentloaded' });
 }
 
 // Helper: Create Event via API
-async function createEvent(token: string, overrides: Record<string, any> = {}) {
+async function createEvent(session: APIRequestContext, overrides: Record<string, unknown> = {}) {
   const eventDate = new Date();
   const dateStr = eventDate.toISOString().split('T')[0];
 
@@ -58,43 +62,31 @@ async function createEvent(token: string, overrides: Record<string, any> = {}) {
     ...overrides,
   };
 
-  const res = await fetch(`${API_BASE}/events/`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(payload),
-  });
+  const res = await session.post(`${API_BASE}/events/`, { data: payload });
 
-  if (!res.ok) {
+  if (!res.ok()) {
     const errText = await res.text();
-    throw new Error(`Failed to create event: ${res.status} ${errText}`);
+    throw new Error(`Failed to create event: ${res.status()} ${errText}`);
   }
   return await res.json();
 }
 
+// Helper: Patch Event via API
+async function patchEvent(session: APIRequestContext, eventId: number, data: Record<string, unknown>) {
+  const res = await session.patch(`${API_BASE}/events/${eventId}/`, { data });
+  return { status: res.status(), data: await res.json().catch(() => ({})) };
+}
+
 // Helper: Fetch Event by ID
-async function fetchEvent(token: string, eventId: number) {
-  const res = await fetch(`${API_BASE}/events/${eventId}/`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  });
+async function fetchEvent(session: APIRequestContext, eventId: number) {
+  const res = await session.get(`${API_BASE}/events/${eventId}/`);
   return await res.json();
 }
 
 // Helper: Take Task via API
-async function takeTaskAPI(token: string, eventId: number) {
-  const res = await fetch(`${API_BASE}/events/${eventId}/take_task/`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({ equipment_ids: [] }),
-  });
-  return { status: res.status, data: await res.json().catch(() => ({})) };
+async function takeTaskAPI(session: APIRequestContext, eventId: number) {
+  const res = await session.post(`${API_BASE}/events/${eventId}/take_task/`, { data: { equipment_ids: [] } });
+  return { status: res.status(), data: await res.json().catch(() => ({})) };
 }
 
 // ==========================================
@@ -104,9 +96,9 @@ async function takeTaskAPI(token: string, eventId: number) {
 test.describe('Feature 1: Event Creation Optional Deadline', () => {
   // Tier 1: Basic Functional Tests
   test('T1.1 Create Event With Explicit ISO Deadline', async ({ page }) => {
-    const adminToken = await getAuthToken();
+    const admin = await loginSession();
     const explicitDeadline = '2026-12-31T23:59:00Z';
-    const event = await createEvent(adminToken, {
+    const event = await createEvent(admin, {
       title: `F1 T1.1 ${Date.now()}`,
       deadline: explicitDeadline,
     });
@@ -119,8 +111,8 @@ test.describe('Feature 1: Event Creation Optional Deadline', () => {
   });
 
   test('T1.2 Create Event Without Deadline (Empty String fallback)', async ({ page }) => {
-    const adminToken = await getAuthToken();
-    const event = await createEvent(adminToken, {
+    const admin = await loginSession();
+    const event = await createEvent(admin, {
       title: `F1 T1.2 ${Date.now()}`,
       deadline: '',
     });
@@ -137,8 +129,8 @@ test.describe('Feature 1: Event Creation Optional Deadline', () => {
   });
 
   test('T1.3 Create Event With Null Deadline (Null fallback)', async ({ page }) => {
-    const adminToken = await getAuthToken();
-    const event = await createEvent(adminToken, {
+    const admin = await loginSession();
+    const event = await createEvent(admin, {
       title: `F1 T1.3 ${Date.now()}`,
       deadline: null,
     });
@@ -155,22 +147,15 @@ test.describe('Feature 1: Event Creation Optional Deadline', () => {
   });
 
   test('T1.4 Edit Event - Add Deadline', async ({ page }) => {
-    const adminToken = await getAuthToken();
-    const event = await createEvent(adminToken, {
+    const admin = await loginSession();
+    const event = await createEvent(admin, {
       title: `F1 T1.4 ${Date.now()}`,
       deadline: '',
     });
 
     const updatedDeadline = '2026-12-31T23:59:00Z';
-    const patchRes = await fetch(`${API_BASE}/events/${event.id}/`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${adminToken}`,
-      },
-      body: JSON.stringify({ deadline: updatedDeadline }),
-    });
-    const updatedEvent = await patchRes.json();
+    const patchRes = await patchEvent(admin, event.id, { deadline: updatedDeadline });
+    const updatedEvent = patchRes.data;
 
     expect(updatedEvent.deadline).toContain('2026-12-31');
 
@@ -179,21 +164,14 @@ test.describe('Feature 1: Event Creation Optional Deadline', () => {
   });
 
   test('T1.5 Edit Event - Remove Deadline and Recalculate Fallback', async ({ page }) => {
-    const adminToken = await getAuthToken();
-    const event = await createEvent(adminToken, {
+    const admin = await loginSession();
+    const event = await createEvent(admin, {
       title: `F1 T1.5 ${Date.now()}`,
       deadline: '2026-12-31T23:59:00Z',
     });
 
-    const patchRes = await fetch(`${API_BASE}/events/${event.id}/`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${adminToken}`,
-      },
-      body: JSON.stringify({ deadline: '' }),
-    });
-    const updatedEvent = await patchRes.json();
+    const patchRes = await patchEvent(admin, event.id, { deadline: '' });
+    const updatedEvent = patchRes.data;
 
     expect(updatedEvent.deadline).not.toContain('2026-12-31');
     const eventDate = new Date(event.date);
@@ -205,10 +183,10 @@ test.describe('Feature 1: Event Creation Optional Deadline', () => {
 
   // Tier 2: Boundary & Edge Tests
   test('T2.1 Event With Same-Day Deadline', async ({ page }) => {
-    const adminToken = await getAuthToken();
+    const admin = await loginSession();
     const todayStr = new Date().toISOString().split('T')[0];
     const sameDayDeadline = `${todayStr}T23:59:59Z`;
-    const event = await createEvent(adminToken, {
+    const event = await createEvent(admin, {
       title: `F1 T2.1 ${Date.now()}`,
       deadline: sameDayDeadline,
     });
@@ -219,9 +197,9 @@ test.describe('Feature 1: Event Creation Optional Deadline', () => {
   });
 
   test('T2.2 Event With Far-Future Deadline', async ({ page }) => {
-    const adminToken = await getAuthToken();
+    const admin = await loginSession();
     const farFuture = '2035-01-01T12:00:00Z';
-    const event = await createEvent(adminToken, {
+    const event = await createEvent(admin, {
       title: `F1 T2.2 ${Date.now()}`,
       deadline: farFuture,
     });
@@ -232,10 +210,10 @@ test.describe('Feature 1: Event Creation Optional Deadline', () => {
   });
 
   test('T2.3 Event With Deadline After Event End Time', async ({ page }) => {
-    const adminToken = await getAuthToken();
+    const admin = await loginSession();
     const todayStr = new Date().toISOString().split('T')[0];
     const postEndDeadline = `${todayStr}T15:00:00Z`;
-    const event = await createEvent(adminToken, {
+    const event = await createEvent(admin, {
       title: `F1 T2.3 ${Date.now()}`,
       time: '12:00:00',
       end_time: '14:00:00',
@@ -248,58 +226,42 @@ test.describe('Feature 1: Event Creation Optional Deadline', () => {
   });
 
   test('T2.4 Multiple Consecutive Deadline Toggles', async ({ page }) => {
-    const adminToken = await getAuthToken();
-    const event = await createEvent(adminToken, {
+    const admin = await loginSession();
+    const event = await createEvent(admin, {
       title: `F1 T2.4 ${Date.now()}`,
       deadline: '',
     });
 
     // 1st update: set explicit
-    await fetch(`${API_BASE}/events/${event.id}/`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
-      body: JSON.stringify({ deadline: '2027-01-01T00:00:00Z' }),
-    });
-    let check = await fetchEvent(adminToken, event.id);
+    await patchEvent(admin, event.id, { deadline: '2027-01-01T00:00:00Z' });
+    let check = await fetchEvent(admin, event.id);
     expect(check.deadline).toContain('2027-01-01');
 
     // 2nd update: clear deadline
-    await fetch(`${API_BASE}/events/${event.id}/`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
-      body: JSON.stringify({ deadline: '' }),
-    });
-    check = await fetchEvent(adminToken, event.id);
+    await patchEvent(admin, event.id, { deadline: '' });
+    check = await fetchEvent(admin, event.id);
     expect(check.deadline).not.toContain('2027-01-01');
 
     // 3rd update: set another explicit
-    await fetch(`${API_BASE}/events/${event.id}/`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
-      body: JSON.stringify({ deadline: '2028-06-15T18:00:00Z' }),
-    });
-    check = await fetchEvent(adminToken, event.id);
+    await patchEvent(admin, event.id, { deadline: '2028-06-15T18:00:00Z' });
+    check = await fetchEvent(admin, event.id);
     expect(check.deadline).toContain('2028-06-15');
   });
 
   test('T2.5 Omitted Deadline Field in Creation Payload', async ({ page }) => {
-    const adminToken = await getAuthToken();
+    const admin = await loginSession();
     // Call API without deadline property at all
-    const res = await fetch(`${API_BASE}/events/`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
-      body: JSON.stringify({
-        title: `F1 T2.5 ${Date.now()}`,
-        date: new Date().toISOString().split('T')[0],
-        time: '10:00:00',
-        status: 'OPEN',
-        max_participants: 2,
-        required_skill: 'ANY',
-        content_type: 'PHOTO',
-        location: '',
-      }),
-    });
-    expect(res.status).toBe(201);
+    const res = await admin.post(`${API_BASE}/events/`, { data: {
+      title: `F1 T2.5 ${Date.now()}`,
+      date: new Date().toISOString().split('T')[0],
+      time: '10:00:00',
+      status: 'OPEN',
+      max_participants: 2,
+      required_skill: 'ANY',
+      content_type: 'PHOTO',
+      location: '',
+    } });
+    expect(res.status()).toBe(201);
     const data = await res.json();
     expect(data.deadline).toBeTruthy();
   });
@@ -312,8 +274,8 @@ test.describe('Feature 1: Event Creation Optional Deadline', () => {
 test.describe('Feature 2: Admin Attendance Button', () => {
   // Tier 1: Basic Functional Tests
   test('T1.1 Admin Join Button Visible on OPEN event', async ({ page }) => {
-    const adminToken = await getAuthToken();
-    const event = await createEvent(adminToken, {
+    const admin = await loginSession();
+    const event = await createEvent(admin, {
       title: `F2 T1.1 ${Date.now()}`,
       status: 'OPEN',
       max_participants: 2,
@@ -326,8 +288,8 @@ test.describe('Feature 2: Admin Attendance Button', () => {
   });
 
   test('T1.2 Admin Joins Event via UI button', async ({ page }) => {
-    const adminToken = await getAuthToken();
-    const event = await createEvent(adminToken, {
+    const admin = await loginSession();
+    const event = await createEvent(admin, {
       title: `F2 T1.2 ${Date.now()}`,
       status: 'OPEN',
       max_participants: 2,
@@ -345,20 +307,20 @@ test.describe('Feature 2: Admin Attendance Button', () => {
     await expect(joinBtn).not.toBeVisible({ timeout: 10000 });
 
     // Verify backend confirms admin participation
-    const updated = await fetchEvent(adminToken, event.id);
-    expect(updated.media_participants.some((p: any) => p.username === 'admin')).toBe(true);
+    const updated = await fetchEvent(admin, event.id);
+    expect(updated.media_participants.some((p: { username?: string }) => p.username === 'admin')).toBe(true);
   });
 
   test('T1.3 Admin Already Joined State Hides Button', async ({ page }) => {
-    const adminToken = await getAuthToken();
-    const event = await createEvent(adminToken, {
+    const admin = await loginSession();
+    const event = await createEvent(admin, {
       title: `F2 T1.3 ${Date.now()}`,
       status: 'OPEN',
       max_participants: 2,
     });
 
     // Join via API first
-    await takeTaskAPI(adminToken, event.id);
+    await takeTaskAPI(admin, event.id);
 
     await authenticatePage(page);
     const card = page.locator('.MuiCard-root', { hasText: event.title });
@@ -367,8 +329,8 @@ test.describe('Feature 2: Admin Attendance Button', () => {
   });
 
   test('T1.4 Admin Join Button on IN_PROGRESS Event', async ({ page }) => {
-    const adminToken = await getAuthToken();
-    const event = await createEvent(adminToken, {
+    const admin = await loginSession();
+    const event = await createEvent(admin, {
       title: `F2 T1.4 ${Date.now()}`,
       status: 'IN_PROGRESS',
       max_participants: 2,
@@ -381,8 +343,8 @@ test.describe('Feature 2: Admin Attendance Button', () => {
   });
 
   test('T1.5 Admin Join Button Hidden on COMPLETED Event', async ({ page }) => {
-    const adminToken = await getAuthToken();
-    const event = await createEvent(adminToken, {
+    const admin = await loginSession();
+    const event = await createEvent(admin, {
       title: `F2 T1.5 ${Date.now()}`,
       status: 'COMPLETED',
       max_participants: 2,
@@ -397,8 +359,8 @@ test.describe('Feature 2: Admin Attendance Button', () => {
 
   // Tier 2: Boundary & Capacity Tests
   test('T2.1 Admin Joins Event with Max Capacity 1', async ({ page }) => {
-    const adminToken = await getAuthToken();
-    const event = await createEvent(adminToken, {
+    const admin = await loginSession();
+    const event = await createEvent(admin, {
       title: `F2 T2.1 ${Date.now()}`,
       status: 'OPEN',
       max_participants: 1,
@@ -412,22 +374,22 @@ test.describe('Feature 2: Admin Attendance Button', () => {
     await joinBtn.click();
 
     await expect(joinBtn).not.toBeVisible({ timeout: 10000 });
-    const updated = await fetchEvent(adminToken, event.id);
+    const updated = await fetchEvent(admin, event.id);
     expect(updated.media_participants.length).toBe(1);
   });
 
   test('T2.2 Admin Join Button Hidden When Event is Full', async ({ page }) => {
-    const adminToken = await getAuthToken();
-    const mediaToken = await getAuthToken(E2E_MEDIA_USER, E2E_MEDIA_PASSWORD);
+    const admin = await loginSession();
+    const media = await loginSession(E2E_MEDIA_USER, E2E_MEDIA_PASSWORD);
 
-    const event = await createEvent(adminToken, {
+    const event = await createEvent(admin, {
       title: `F2 T2.2 ${Date.now()}`,
       status: 'OPEN',
       max_participants: 1,
     });
 
     // Media user joins, filling the 1 slot
-    await takeTaskAPI(mediaToken, event.id);
+    await takeTaskAPI(media, event.id);
 
     await authenticatePage(page);
     const card = page.locator('.MuiCard-root', { hasText: event.title });
@@ -436,17 +398,17 @@ test.describe('Feature 2: Admin Attendance Button', () => {
   });
 
   test('T2.3 Admin Joins Near Capacity (1 of 2 spots taken)', async ({ page }) => {
-    const adminToken = await getAuthToken();
-    const mediaToken = await getAuthToken(E2E_MEDIA_USER, E2E_MEDIA_PASSWORD);
+    const admin = await loginSession();
+    const media = await loginSession(E2E_MEDIA_USER, E2E_MEDIA_PASSWORD);
 
-    const event = await createEvent(adminToken, {
+    const event = await createEvent(admin, {
       title: `F2 T2.3 ${Date.now()}`,
       status: 'OPEN',
       max_participants: 2,
     });
 
     // Media user takes first spot
-    await takeTaskAPI(mediaToken, event.id);
+    await takeTaskAPI(media, event.id);
 
     await authenticatePage(page);
     const card = page.locator('.MuiCard-root', { hasText: event.title });
@@ -456,13 +418,13 @@ test.describe('Feature 2: Admin Attendance Button', () => {
     await joinBtn.click();
 
     await expect(joinBtn).not.toBeVisible({ timeout: 10000 });
-    const updated = await fetchEvent(adminToken, event.id);
+    const updated = await fetchEvent(admin, event.id);
     expect(updated.media_participants.length).toBe(2);
   });
 
   test('T2.4 Admin Join Preserved Across Page Reload', async ({ page }) => {
-    const adminToken = await getAuthToken();
-    const event = await createEvent(adminToken, {
+    const admin = await loginSession();
+    const event = await createEvent(admin, {
       title: `F2 T2.4 ${Date.now()}`,
       status: 'OPEN',
       max_participants: 2,
@@ -481,8 +443,8 @@ test.describe('Feature 2: Admin Attendance Button', () => {
   });
 
   test('T2.5 Admin Attendance Button on PENDING Event is Not Shown', async ({ page }) => {
-    const adminToken = await getAuthToken();
-    const event = await createEvent(adminToken, {
+    const admin = await loginSession();
+    const event = await createEvent(admin, {
       title: `F2 T2.5 ${Date.now()}`,
       status: 'PENDING',
       max_participants: 2,
@@ -503,8 +465,8 @@ test.describe('Feature 2: Admin Attendance Button', () => {
 test.describe('Feature 3: Media Self-Signup', () => {
   // Tier 1: Basic Functional Tests
   test('T1.1 Media Signup Button Visible on OPEN Event', async ({ page }) => {
-    const adminToken = await getAuthToken();
-    const event = await createEvent(adminToken, {
+    const admin = await loginSession();
+    const event = await createEvent(admin, {
       title: `F3 T1.1 ${Date.now()}`,
       status: 'OPEN',
       max_participants: 2,
@@ -517,8 +479,8 @@ test.describe('Feature 3: Media Self-Signup', () => {
   });
 
   test('T1.2 Media User Signs Up via UI', async ({ page }) => {
-    const adminToken = await getAuthToken();
-    const event = await createEvent(adminToken, {
+    const admin = await loginSession();
+    const event = await createEvent(admin, {
       title: `F3 T1.2 ${Date.now()}`,
       status: 'OPEN',
       max_participants: 2,
@@ -540,22 +502,22 @@ test.describe('Feature 3: Media Self-Signup', () => {
 
     // Verify backend confirms media participation
     await expect(signupBtn).not.toBeVisible({ timeout: 10000 });
-    const updated = await fetchEvent(adminToken, event.id);
-    expect(updated.media_participants.some((p: any) => p.username === 'testdata_operator')).toBe(true);
+    const updated = await fetchEvent(admin, event.id);
+    expect(updated.media_participants.some((p: { username?: string }) => p.username === 'testdata_operator')).toBe(true);
   });
 
   test('T1.3 Media Already Joined State Hides Signup Button', async ({ page }) => {
-    const adminToken = await getAuthToken();
-    const mediaToken = await getAuthToken(E2E_MEDIA_USER, E2E_MEDIA_PASSWORD);
+    const admin = await loginSession();
+    const media = await loginSession(E2E_MEDIA_USER, E2E_MEDIA_PASSWORD);
 
-    const event = await createEvent(adminToken, {
+    const event = await createEvent(admin, {
       title: `F3 T1.3 ${Date.now()}`,
       status: 'OPEN',
       max_participants: 2,
     });
 
     // Join via API first
-    await takeTaskAPI(mediaToken, event.id);
+    await takeTaskAPI(media, event.id);
 
     await authenticatePage(page, E2E_MEDIA_USER, E2E_MEDIA_PASSWORD);
     const card = page.locator('.MuiCard-root', { hasText: event.title });
@@ -564,8 +526,8 @@ test.describe('Feature 3: Media Self-Signup', () => {
   });
 
   test('T1.4 Media Signup Button on IN_PROGRESS Event', async ({ page }) => {
-    const adminToken = await getAuthToken();
-    const event = await createEvent(adminToken, {
+    const admin = await loginSession();
+    const event = await createEvent(admin, {
       title: `F3 T1.4 ${Date.now()}`,
       status: 'IN_PROGRESS',
       max_participants: 2,
@@ -578,8 +540,8 @@ test.describe('Feature 3: Media Self-Signup', () => {
   });
 
   test('T1.5 Media Signup Button Hidden on COMPLETED Event', async ({ page }) => {
-    const adminToken = await getAuthToken();
-    const event = await createEvent(adminToken, {
+    const admin = await loginSession();
+    const event = await createEvent(admin, {
       title: `F3 T1.5 ${Date.now()}`,
       status: 'COMPLETED',
       max_participants: 2,
@@ -594,8 +556,8 @@ test.describe('Feature 3: Media Self-Signup', () => {
 
   // Tier 2: Boundary & Capacity Tests
   test('T2.1 Media User Signs Up for Event with Max Capacity 1', async ({ page }) => {
-    const adminToken = await getAuthToken();
-    const event = await createEvent(adminToken, {
+    const admin = await loginSession();
+    const event = await createEvent(admin, {
       title: `F3 T2.1 ${Date.now()}`,
       status: 'OPEN',
       max_participants: 1,
@@ -611,20 +573,20 @@ test.describe('Feature 3: Media Self-Signup', () => {
       await confirmModalBtn.click();
     }
 
-    const updated = await fetchEvent(adminToken, event.id);
+    const updated = await fetchEvent(admin, event.id);
     expect(updated.media_participants.length).toBe(1);
   });
 
   test('T2.2 Media Signup Button Hidden When Event is Full', async ({ page }) => {
-    const adminToken = await getAuthToken();
-    const event = await createEvent(adminToken, {
+    const admin = await loginSession();
+    const event = await createEvent(admin, {
       title: `F3 T2.2 ${Date.now()}`,
       status: 'OPEN',
       max_participants: 1,
     });
 
     // Admin joins, filling the 1 slot
-    await takeTaskAPI(adminToken, event.id);
+    await takeTaskAPI(admin, event.id);
 
     await authenticatePage(page, E2E_MEDIA_USER, E2E_MEDIA_PASSWORD);
     const card = page.locator('.MuiCard-root', { hasText: event.title });
@@ -633,15 +595,15 @@ test.describe('Feature 3: Media Self-Signup', () => {
   });
 
   test('T2.3 Media User Signs Up Near Capacity (1 of 2 spots taken)', async ({ page }) => {
-    const adminToken = await getAuthToken();
-    const event = await createEvent(adminToken, {
+    const admin = await loginSession();
+    const event = await createEvent(admin, {
       title: `F3 T2.3 ${Date.now()}`,
       status: 'OPEN',
       max_participants: 2,
     });
 
     // Admin takes first spot
-    await takeTaskAPI(adminToken, event.id);
+    await takeTaskAPI(admin, event.id);
 
     await authenticatePage(page, E2E_MEDIA_USER, E2E_MEDIA_PASSWORD);
     const card = page.locator('.MuiCard-root', { hasText: event.title });
@@ -656,13 +618,13 @@ test.describe('Feature 3: Media Self-Signup', () => {
     }
 
     await expect(signupBtn).not.toBeVisible({ timeout: 10000 });
-    const updated = await fetchEvent(adminToken, event.id);
+    const updated = await fetchEvent(admin, event.id);
     expect(updated.media_participants.length).toBe(2);
   });
 
   test('T2.4 Media User Signup State Preserved on Page Reload', async ({ page }) => {
-    const adminToken = await getAuthToken();
-    const event = await createEvent(adminToken, {
+    const admin = await loginSession();
+    const event = await createEvent(admin, {
       title: `F3 T2.4 ${Date.now()}`,
       status: 'OPEN',
       max_participants: 2,
@@ -685,9 +647,9 @@ test.describe('Feature 3: Media Self-Signup', () => {
   });
 
   test('T2.5 Media User Cannot Sign Up if Required Skill Mismatches', async ({ page }) => {
-    const adminToken = await getAuthToken();
+    const admin = await loginSession();
     // testdata_operator has ANY skill level; an event requiring PRO skill with features enabled
-    const event = await createEvent(adminToken, {
+    const event = await createEvent(admin, {
       title: `F3 T2.5 ${Date.now()}`,
       status: 'OPEN',
       max_participants: 2,
@@ -706,9 +668,9 @@ test.describe('Feature 3: Media Self-Signup', () => {
 
 test.describe('Tier 3: Pairwise Coverage', () => {
   test('Pairwise 1: Feature 1 & 2 - Admin creates event with explicit deadline and joins it', async ({ page }) => {
-    const adminToken = await getAuthToken();
+    const admin = await loginSession();
     const explicitDeadline = '2026-11-20T23:59:00Z';
-    const event = await createEvent(adminToken, {
+    const event = await createEvent(admin, {
       title: `Pairwise F1+F2 ${Date.now()}`,
       deadline: explicitDeadline,
       max_participants: 2,
@@ -725,14 +687,14 @@ test.describe('Tier 3: Pairwise Coverage', () => {
     await joinBtn.click();
     await expect(joinBtn).not.toBeVisible({ timeout: 10000 });
 
-    const updated = await fetchEvent(adminToken, event.id);
-    expect(updated.media_participants.some((p: any) => p.username === 'admin')).toBe(true);
+    const updated = await fetchEvent(admin, event.id);
+    expect(updated.media_participants.some((p: { username?: string }) => p.username === 'admin')).toBe(true);
     expect(updated.deadline).toContain('2026-11-20');
   });
 
   test('Pairwise 2: Feature 1 & 3 - Admin creates event with no deadline and Media user joins', async ({ page }) => {
-    const adminToken = await getAuthToken();
-    const event = await createEvent(adminToken, {
+    const admin = await loginSession();
+    const event = await createEvent(admin, {
       title: `Pairwise F1+F3 ${Date.now()}`,
       deadline: '',
       max_participants: 2,
@@ -756,13 +718,13 @@ test.describe('Tier 3: Pairwise Coverage', () => {
 
     await expect(signupBtn).not.toBeVisible({ timeout: 10000 });
 
-    const updated = await fetchEvent(adminToken, event.id);
-    expect(updated.media_participants.some((p: any) => p.username === 'testdata_operator')).toBe(true);
+    const updated = await fetchEvent(admin, event.id);
+    expect(updated.media_participants.some((p: { username?: string }) => p.username === 'testdata_operator')).toBe(true);
   });
 
   test('Pairwise 3: Feature 2 & 3 - Admin and Media user both join same event', async ({ page }) => {
-    const adminToken = await getAuthToken();
-    const event = await createEvent(adminToken, {
+    const admin = await loginSession();
+    const event = await createEvent(admin, {
       title: `Pairwise F2+F3 ${Date.now()}`,
       max_participants: 2,
     });
@@ -788,10 +750,10 @@ test.describe('Tier 3: Pairwise Coverage', () => {
 
     await expect(signupBtn).not.toBeVisible({ timeout: 10000 });
 
-    const updated = await fetchEvent(adminToken, event.id);
+    const updated = await fetchEvent(admin, event.id);
     expect(updated.media_participants.length).toBe(2);
-    expect(updated.media_participants.some((p: any) => p.username === 'admin')).toBe(true);
-    expect(updated.media_participants.some((p: any) => p.username === 'testdata_operator')).toBe(true);
+    expect(updated.media_participants.some((p: { username?: string }) => p.username === 'admin')).toBe(true);
+    expect(updated.media_participants.some((p: { username?: string }) => p.username === 'testdata_operator')).toBe(true);
   });
 });
 
@@ -801,8 +763,8 @@ test.describe('Tier 3: Pairwise Coverage', () => {
 
 test.describe('Tier 4: Real-World Scenarios', () => {
   test('Scenario 1: Full event lifecycle by admin: create (no deadline), admin self-signup', async ({ page }) => {
-    const adminToken = await getAuthToken();
-    const event = await createEvent(adminToken, {
+    const admin = await loginSession();
+    const event = await createEvent(admin, {
       title: `Scenario 1 ${Date.now()}`,
       deadline: '',
       max_participants: 3,
@@ -816,13 +778,13 @@ test.describe('Tier 4: Real-World Scenarios', () => {
 
     await card.locator('button:has-text("Пойти на мероприятие")').click();
 
-    const updated = await fetchEvent(adminToken, event.id);
-    expect(updated.media_participants.some((p: any) => p.username === 'admin')).toBe(true);
+    const updated = await fetchEvent(admin, event.id);
+    expect(updated.media_participants.some((p: { username?: string }) => p.username === 'admin')).toBe(true);
   });
 
   test('Scenario 2: Media user signs up for event created by admin without deadline', async ({ page }) => {
-    const adminToken = await getAuthToken();
-    const event = await createEvent(adminToken, {
+    const admin = await loginSession();
+    const event = await createEvent(admin, {
       title: `Scenario 2 ${Date.now()}`,
       deadline: '',
       max_participants: 2,
@@ -838,13 +800,13 @@ test.describe('Tier 4: Real-World Scenarios', () => {
       await confirmModalBtn.click();
     }
 
-    const updated = await fetchEvent(adminToken, event.id);
-    expect(updated.media_participants.some((p: any) => p.username === 'testdata_operator')).toBe(true);
+    const updated = await fetchEvent(admin, event.id);
+    expect(updated.media_participants.some((p: { username?: string }) => p.username === 'testdata_operator')).toBe(true);
   });
 
   test('Scenario 3: Admin and Media user both sign up for the same event', async ({ page }) => {
-    const adminToken = await getAuthToken();
-    const event = await createEvent(adminToken, {
+    const admin = await loginSession();
+    const event = await createEvent(admin, {
       title: `Scenario 3 ${Date.now()}`,
       max_participants: 2,
     });
@@ -865,21 +827,21 @@ test.describe('Tier 4: Real-World Scenarios', () => {
       await confirmModalBtn.click();
     }
 
-    const updated = await fetchEvent(adminToken, event.id);
+    const updated = await fetchEvent(admin, event.id);
     expect(updated.media_participants.length).toBe(2);
   });
 
   test('Scenario 4: Event fills up via media user signups, admin attempts to join', async ({ page }) => {
-    const adminToken = await getAuthToken();
-    const mediaToken = await getAuthToken(E2E_MEDIA_USER, E2E_MEDIA_PASSWORD);
+    const admin = await loginSession();
+    const media = await loginSession(E2E_MEDIA_USER, E2E_MEDIA_PASSWORD);
 
-    const event = await createEvent(adminToken, {
+    const event = await createEvent(admin, {
       title: `Scenario 4 ${Date.now()}`,
       max_participants: 1,
     });
 
     // Media user fills the event
-    await takeTaskAPI(mediaToken, event.id);
+    await takeTaskAPI(media, event.id);
 
     // Admin views event
     await authenticatePage(page);
@@ -891,9 +853,9 @@ test.describe('Tier 4: Real-World Scenarios', () => {
   });
 
   test('Scenario 5: Complex multi-role interactions on event', async ({ page }) => {
-    const adminToken = await getAuthToken();
+    const admin = await loginSession();
     // 1. Create with no deadline
-    const event = await createEvent(adminToken, {
+    const event = await createEvent(admin, {
       title: `Scenario 5 ${Date.now()}`,
       deadline: '',
       max_participants: 2,
@@ -901,11 +863,7 @@ test.describe('Tier 4: Real-World Scenarios', () => {
 
     // 2. Admin edits deadline to explicit date
     const updatedDeadline = '2026-12-15T20:00:00Z';
-    await fetch(`${API_BASE}/events/${event.id}/`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
-      body: JSON.stringify({ deadline: updatedDeadline }),
-    });
+    await patchEvent(admin, event.id, { deadline: updatedDeadline });
 
     // 3. Media user signs up
     await authenticatePage(page, E2E_MEDIA_USER, E2E_MEDIA_PASSWORD);
@@ -924,10 +882,10 @@ test.describe('Tier 4: Real-World Scenarios', () => {
     await adminCard.locator('button:has-text("Пойти на мероприятие")').click();
 
     // 5. Verify final state
-    const finalEvent = await fetchEvent(adminToken, event.id);
+    const finalEvent = await fetchEvent(admin, event.id);
     expect(finalEvent.deadline).toContain('2026-12-15');
     expect(finalEvent.media_participants.length).toBe(2);
-    expect(finalEvent.media_participants.some((p: any) => p.username === 'admin')).toBe(true);
-    expect(finalEvent.media_participants.some((p: any) => p.username === 'testdata_operator')).toBe(true);
+    expect(finalEvent.media_participants.some((p: { username?: string }) => p.username === 'admin')).toBe(true);
+    expect(finalEvent.media_participants.some((p: { username?: string }) => p.username === 'testdata_operator')).toBe(true);
   });
 });

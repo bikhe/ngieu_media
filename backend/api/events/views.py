@@ -5,6 +5,7 @@ import hashlib
 import urllib.parse
 import json
 import logging
+import django.middleware.csrf
 from datetime import timedelta
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,14 @@ from django_filters.rest_framework import DjangoFilterBackend
 from .models import *
 from .serializers import *
 from .pagination import OptionalPageNumberPagination
+from .authentication import set_auth_cookies
+
+
+def _ensure_csrf_cookie(request) -> None:
+    """Have CsrfViewMiddleware attach a csrftoken cookie on the way out so the
+    SPA can echo it in X-CSRFToken for unsafe methods."""
+    request.META['CSRF_COOKIE_NEEDS_UPDATE'] = True
+    django.middleware.csrf.get_token(request)
 
 ENABLE_MULTIPLE_PHOTOGRAPHERS = getattr(settings, 'ENABLE_MULTIPLE_PHOTOGRAPHERS', True)
 ENABLE_STRICT_DEADLINES = getattr(settings, 'ENABLE_STRICT_DEADLINES', True)
@@ -724,11 +733,13 @@ class TelegramAuthView(APIView):
             }, status=status.HTTP_404_NOT_FOUND)
 
         refresh = RefreshToken.for_user(user)
-        return Response({
-            'refresh': str(refresh),
-            'access': str(refresh.access_token),
+        response = Response({
+            'status': 'ok',
             'user': UserSerializer(user).data
         })
+        set_auth_cookies(response, str(refresh.access_token), str(refresh))
+        _ensure_csrf_cookie(request)
+        return response
 
 class TelegramRegisterView(APIView):
     permission_classes = [AllowAny]
@@ -774,11 +785,13 @@ class TelegramRegisterView(APIView):
         invite.save()
 
         refresh = RefreshToken.for_user(user)
-        return Response({
-            'refresh': str(refresh),
-            'access': str(refresh.access_token),
+        response = Response({
+            'status': 'ok',
             'user': UserSerializer(user).data
         })
+        set_auth_cookies(response, str(refresh.access_token), str(refresh))
+        _ensure_csrf_cookie(request)
+        return response
 
 class TelegramLinkView(APIView):
     permission_classes = [IsAuthenticated]
