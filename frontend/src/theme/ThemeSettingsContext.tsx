@@ -227,7 +227,7 @@ export const ThemeSettingsProvider = ({ children }: { children: ReactNode }) => 
       mode: theme.palette.mode,
       toggleColorMode,
       brandName: 'Media Events',
-      logoUrl: 'https://cdn-icons-png.flaticon.com/512/3003/3003310.png'
+      logoUrl: '/default-logo.png'
     }}>
       <ThemeProvider theme={theme}>
         <CssBaseline />

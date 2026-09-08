@@ -1,14 +1,28 @@
 from django.db import models
-from django.contrib.auth.models import AbstractUser
+from django.contrib.auth.models import AbstractUser, UserManager as DjangoUserManager
 
 class Skill(models.Model):
     name = models.CharField(max_length=50)
     code = models.CharField(max_length=20, unique=True)
     is_pro = models.BooleanField(default=False, help_text="Может брать любые задачи")
     is_default = models.BooleanField(default=False)
-    
+
     def __str__(self):
         return self.name
+
+class UserManager(DjangoUserManager):
+    def create_user(self, username, email=None, password=None, **extra_fields):
+        extra_fields.setdefault('role', 'ORGANIZER')
+        return super().create_user(username, email, password, **extra_fields)
+
+    def create_superuser(self, username, email=None, password=None, **extra_fields):
+        # API permissions check request.user.role == 'MAIN_ADMIN', which
+        # plain is_superuser=True does not imply on its own.
+        extra_fields.setdefault('role', 'MAIN_ADMIN')
+        extra_fields.setdefault('can_approve_events', True)
+        extra_fields.setdefault('can_manage_warehouse', True)
+        extra_fields.setdefault('can_view_all_events', True)
+        return super().create_superuser(username, email, password, **extra_fields)
 
 class User(AbstractUser):
     ROLE_CHOICES = (('MAIN_ADMIN', 'Админ'), ('MEDIA', 'СМИ'), ('ORGANIZER', 'Орг'))
@@ -16,10 +30,12 @@ class User(AbstractUser):
     skill_level = models.CharField(max_length=20, default='ANY', verbose_name="Уровень")
     telegram_id = models.CharField(max_length=100, blank=True, null=True)
     phone_number = models.CharField(max_length=20, blank=True, null=True, verbose_name="Номер телефона")
-    
+
     can_approve_events = models.BooleanField(default=False, verbose_name="Может одобрять мероприятия")
     can_manage_warehouse = models.BooleanField(default=False, verbose_name="Может управлять складом")
     can_view_all_events = models.BooleanField(default=False, verbose_name="Может просматривать все мероприятия")
+
+    objects = UserManager()
 
 class Location(models.Model):
     name = models.CharField(max_length=255, unique=True)
@@ -269,13 +285,7 @@ def log_save(sender, instance, created, **kwargs):
         extra_data['username'] = instance.username
         extra_data['role'] = instance.role
     
-    # Auto-cleanup old logs to prevent DB bloat (keep last 1000 logs)
-    try:
-        if UpdateLog.objects.count() > 1000:
-            old_ids = list(UpdateLog.objects.order_by('-id').values_list('id', flat=True)[1000:])
-            UpdateLog.objects.filter(id__in=old_ids).delete()
-    except Exception:
-        pass
+    # Auto-cleanup old logs has been moved to Celery task: cleanup_update_logs
 
     UpdateLog.objects.create(
         entity_type=entity_type,
@@ -313,21 +323,39 @@ import json
 import redis
 import os
 
+# Reuse one client: creating a Redis object per signal wastes a connection
+# and, when the host is unreachable, a full DNS timeout on every save.
+_redis_publisher = None
+
+def _get_redis_publisher():
+    global _redis_publisher
+    if _redis_publisher is None:
+        redis_host = os.environ.get('REDIS_HOST', 'redis')
+        _redis_publisher = redis.Redis(
+            host=redis_host, port=6379, db=0,
+            socket_connect_timeout=1, socket_timeout=1,
+        )
+    return _redis_publisher
+
 @receiver(post_save, sender=UpdateLog)
 def publish_update_log_to_redis(sender, instance, created, **kwargs):
     if not created:
         return
-    try:
-        redis_host = os.environ.get('REDIS_HOST', 'redis')
-        r = redis.Redis(host=redis_host, port=6379, db=0)
-        log_data = {
-            'id': instance.id,
-            'entity_type': instance.entity_type,
-            'entity_id': instance.entity_id,
-            'action': instance.action,
-            'extra_data': instance.extra_data,
-            'timestamp': instance.timestamp.isoformat()
-        }
-        r.publish('ngieu_updates', json.dumps({'type': 'updates', 'logs': [log_data]}))
-    except Exception as e:
-        print("Failed to publish to Redis:", e)
+    
+    from django.db import transaction
+    def do_publish():
+        try:
+            r = _get_redis_publisher()
+            log_data = {
+                'id': instance.id,
+                'entity_type': instance.entity_type,
+                'entity_id': instance.entity_id,
+                'action': instance.action,
+                'extra_data': instance.extra_data,
+                'timestamp': instance.timestamp.isoformat()
+            }
+            r.publish('ngieu_updates', json.dumps({'type': 'updates', 'logs': [log_data]}))
+        except Exception as e:
+            print("Failed to publish to Redis:", e)
+            
+    transaction.on_commit(do_publish)

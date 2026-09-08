@@ -78,35 +78,8 @@ def verify_telegram_init_data(init_data: str, bot_token: str) -> dict | None:
         return None
 
 def send_tg_notification(chat_id, text, event_id=None, open_chat=False):
-    if not ENABLE_TELEGRAM_BOT or not chat_id or not TELEGRAM_BOT_TOKEN:
-        return
-    
-    payload = {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "HTML"
-    }
-    
-    if event_id is not None:
-        url = f"{TELEGRAM_WEBAPP_URL}?event_id={event_id}"
-        if open_chat:
-            url += "&open_chat=true"
-            
-        payload["reply_markup"] = {
-            "inline_keyboard": [[
-                {
-                    "text": "💬 Открыть чат" if open_chat else "🔍 Детали съемки",
-                    "web_app": {
-                        "url": url
-                    }
-                }
-            ]]
-        }
-        
-    try:
-        requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", json=payload, timeout=2)
-    except Exception as e:
-        logger.warning("Failed to send telegram notification: %s", e)
+    from .tasks import send_tg_notification_task
+    send_tg_notification_task.delay(chat_id, text, event_id, open_chat)
 
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all().order_by('id')
@@ -226,8 +199,6 @@ class EventViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         qs = Event.objects.all()
-        if ENABLE_STRICT_DEADLINES:
-            qs.filter(status='IN_PROGRESS', deadline__lt=timezone.now()).update(status='OVERDUE')
         if user.role == 'MAIN_ADMIN' or getattr(user, 'can_view_all_events', False): return qs
         elif user.role == 'MEDIA': return qs.exclude(status__in=['PENDING', 'REJECTED'])
         return qs.filter(responsible_person=user)
@@ -265,7 +236,7 @@ class EventViewSet(viewsets.ModelViewSet):
                 e.time.strftime("%H:%M") if e.time else "",
                 e.location,
                 e.get_content_type_display(),
-                e.get_required_skill_display(),
+                e.required_skill,
                 e.get_status_display(),
                 e.responsible_person.username,
                 ", ".join([u.username for u in e.media_participants.all()]),
@@ -310,7 +281,7 @@ class EventViewSet(viewsets.ModelViewSet):
                             event_date = row[1].date()
                         else:
                             event_date = datetime.datetime.strptime(date_str.split()[0], '%d.%m.%Y').date()
-                    except: pass
+                    except Exception: pass
                     
                 # Parse time
                 event_time = datetime.time(12, 0)
@@ -322,7 +293,7 @@ class EventViewSet(viewsets.ModelViewSet):
                             event_time = row[2].time()
                         else:
                             event_time = datetime.datetime.strptime(time_str.strip(), '%H:%M').time()
-                    except: pass
+                    except Exception: pass
                     
                 Event.objects.create(
                     title=title,
@@ -412,58 +383,37 @@ class EventViewSet(viewsets.ModelViewSet):
                 })
 
         # 6. Equipment utilization
+        equipment_stats_raw = list(Equipment.objects.annotate(
+            bookings_count=Count('event', filter=Q(event__in=events_filtered))
+        ).values('id', 'name', 'total_quantity', 'bookings_count'))
+        
         equipment_stats = []
-        for eq in Equipment.objects.all():
-            bookings = events_filtered.filter(booked_equipment=eq).count()
-            booking_rate = round((bookings / total_events * 100), 1) if total_events > 0 else 0
-            equipment_stats.append({
-                'id': eq.id,
-                'name': eq.name,
-                'total_quantity': eq.total_quantity,
-                'bookings_count': bookings,
-                'booking_rate': booking_rate
-            })
+        for eq in equipment_stats_raw:
+            eq['booking_rate'] = round((eq['bookings_count'] / total_events * 100), 1) if total_events > 0 else 0
+            equipment_stats.append(eq)
         
         # Sort equipment by popularity
         equipment_stats.sort(key=lambda x: x['bookings_count'], reverse=True)
 
         # 7. Media performers stats
+        media_stats_raw = list(User.objects.filter(role='MEDIA').annotate(
+            total_taken=Count('taken_events', filter=Q(taken_events__in=events_filtered)),
+            completed_count=Count('taken_events', filter=Q(taken_events__in=events_filtered, taken_events__status='COMPLETED')),
+            overdue_count=Count('taken_events', filter=Q(taken_events__in=events_filtered, taken_events__status='OVERDUE')),
+            in_progress_count=Count('taken_events', filter=Q(taken_events__in=events_filtered, taken_events__status='IN_PROGRESS'))
+        ).values('id', 'username', 'first_name', 'last_name', 'skill_level', 'total_taken', 'completed_count', 'overdue_count', 'in_progress_count'))
+
         media_stats = []
-        for u in User.objects.filter(role='MEDIA'):
-            taken_events = u.taken_events.filter(event_filter)
-            total_taken = taken_events.count()
-            completed = taken_events.filter(status='COMPLETED').count()
-            overdue = taken_events.filter(status='OVERDUE').count()
-            in_progress = taken_events.filter(status='IN_PROGRESS').count()
-            success_rate = round((completed / total_taken * 100), 1) if total_taken > 0 else 0
-            
-            media_stats.append({
-                'id': u.id,
-                'username': u.username,
-                'first_name': u.first_name,
-                'last_name': u.last_name,
-                'skill_level': u.skill_level,
-                'total_taken': total_taken,
-                'completed_count': completed,
-                'overdue_count': overdue,
-                'in_progress_count': in_progress,
-                'success_rate': success_rate
-            })
+        for m in media_stats_raw:
+            m['success_rate'] = round((m['completed_count'] / m['total_taken'] * 100), 1) if m['total_taken'] > 0 else 0
+            media_stats.append(m)
         
         media_stats.sort(key=lambda x: x['completed_count'], reverse=True)
 
         # 8. Organizer stats
-        organizer_stats = []
-        for u in User.objects.filter(role__in=['ORGANIZER', 'MAIN_ADMIN']):
-            created = u.created_events.filter(event_filter).count()
-            organizer_stats.append({
-                'id': u.id,
-                'username': u.username,
-                'first_name': u.first_name,
-                'last_name': u.last_name,
-                'role': u.role,
-                'created_count': created
-            })
+        organizer_stats = list(User.objects.filter(role__in=['ORGANIZER', 'MAIN_ADMIN']).annotate(
+            created_count=Count('created_events', filter=Q(created_events__in=events_filtered))
+        ).values('id', 'username', 'first_name', 'last_name', 'role', 'created_count'))
         
         organizer_stats.sort(key=lambda x: x['created_count'], reverse=True)
 
@@ -493,7 +443,7 @@ class EventViewSet(viewsets.ModelViewSet):
             return Response({'error': 'Только исполнители (СМИ) могут брать задачи'}, status=403)
         with transaction.atomic():
             try: event = Event.objects.select_for_update().get(pk=pk)
-            except: return Response({'error': 'Не найдено'}, status=404)
+            except Event.DoesNotExist: return Response({'error': 'Не найдено'}, status=404)
 
             if ENABLE_SKILL_LEVELS and event.required_skill != 'ANY' and request.user.skill_level not in [event.required_skill, 'PRO']:
                 return Response({'error': 'Нужен VIP доступ'}, status=403)
@@ -539,10 +489,10 @@ class EventViewSet(viewsets.ModelViewSet):
 
             event.media_participants.add(request.user)
             location_id = request.data.get('location_id')
-            if location_id:
+            if location_id and str(location_id).isdigit():
                 details = event.participant_details.copy() if event.participant_details else {}
                 user_details = details.get(str(request.user.id), {})
-                user_details['location_id'] = location_id
+                user_details['location_id'] = int(location_id)
                 details[str(request.user.id)] = user_details
                 event.participant_details = details
 
@@ -584,10 +534,10 @@ class EventViewSet(viewsets.ModelViewSet):
             
             details = event.participant_details.copy() if event.participant_details else {}
             user_details = details.get(str(user.id), {})
-            if role_id:
-                user_details['role_id'] = role_id
-            if location_id:
-                user_details['location_id'] = location_id
+            if role_id and str(role_id).isdigit():
+                user_details['role_id'] = int(role_id)
+            if location_id and str(location_id).isdigit():
+                user_details['location_id'] = int(location_id)
             
             details[str(user.id)] = user_details
             event.participant_details = details

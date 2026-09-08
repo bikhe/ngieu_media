@@ -54,14 +54,14 @@ async def event_generator(request: Request, since_id: int, ticket: str = None):
 
     try:
         await pubsub.subscribe("ngieu_updates")
-        last_ping = asyncio.get_event_loop().time()
+        last_ping = asyncio.get_running_loop().time()
 
         while True:
             if await request.is_disconnected():
                 break
 
             # Send keepalive ping to prevent browser/proxy from closing the connection
-            now = asyncio.get_event_loop().time()
+            now = asyncio.get_running_loop().time()
             if now - last_ping >= KEEPALIVE_INTERVAL:
                 yield {"event": "message", "data": json.dumps({"type": "ping"})}
                 last_ping = now

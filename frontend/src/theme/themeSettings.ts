@@ -32,5 +32,5 @@ export const ThemeSettingsContext = createContext<ThemeSettingsContextType>({
   mode: 'light',
   toggleColorMode: () => {},
   brandName: 'Media Events',
-  logoUrl: 'https://cdn-icons-png.flaticon.com/512/3003/3003310.png'
+  logoUrl: '/default-logo.png'
 });
