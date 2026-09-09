@@ -179,6 +179,9 @@ JWT_REFRESH_COOKIE = 'refresh'
 JWT_COOKIE_SECURE = os.getenv('JWT_COOKIE_SECURE', str(not DEBUG)).lower() in ('true', '1', 't')
 JWT_COOKIE_SAMESITE = os.getenv('JWT_COOKIE_SAMESITE', 'Lax')  # admin/mobile — поддомены одного сайта
 CSRF_COOKIE_HTTPONLY = False  # JS читает csrftoken и шлёт его в X-CSRFToken
+CSRF_COOKIE_DOMAIN = '.pivas.su'
+SESSION_COOKIE_DOMAIN = '.pivas.su'
+JWT_COOKIE_DOMAIN = '.pivas.su'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 

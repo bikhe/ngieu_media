@@ -55,15 +55,15 @@ def set_auth_cookies(response, access: str, refresh: str) -> None:
 
     response.set_cookie(
         settings.JWT_ACCESS_COOKIE, access,
-        max_age=access_lifetime, httponly=True, secure=secure, samesite=samesite, path='/',
+        max_age=access_lifetime, httponly=True, secure=secure, samesite=samesite, path='/', domain=getattr(settings, 'JWT_COOKIE_DOMAIN', None)
     )
     response.set_cookie(
         settings.JWT_REFRESH_COOKIE, refresh,
-        max_age=refresh_lifetime, httponly=True, secure=secure, samesite=samesite, path='/',
+        max_age=refresh_lifetime, httponly=True, secure=secure, samesite=samesite, path='/', domain=getattr(settings, 'JWT_COOKIE_DOMAIN', None)
     )
 
 
 def clear_auth_cookies(response) -> None:
     """Remove auth cookies (logout / failed refresh)."""
-    response.delete_cookie(settings.JWT_ACCESS_COOKIE, path='/')
-    response.delete_cookie(settings.JWT_REFRESH_COOKIE, path='/')
+    response.delete_cookie(settings.JWT_ACCESS_COOKIE, path='/', domain=getattr(settings, 'JWT_COOKIE_DOMAIN', None))
+    response.delete_cookie(settings.JWT_REFRESH_COOKIE, path='/', domain=getattr(settings, 'JWT_COOKIE_DOMAIN', None))
