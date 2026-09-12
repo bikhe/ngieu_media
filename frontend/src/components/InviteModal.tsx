@@ -16,6 +16,7 @@ import {
 } from '@mui/material';
 import { ContentCopy as ContentCopyIcon, Add as AddIcon } from '@mui/icons-material';
 import toast from 'react-hot-toast';
+import { isAxiosError } from 'axios';
 import api from '../services/api';
 
 interface InviteModalProps {
@@ -70,8 +71,11 @@ const InviteModal: React.FC<InviteModalProps> = ({ open, onClose }) => {
       navigator.clipboard.writeText(res.data.code);
       toast.success(`Инвайт для ${role === 'MEDIA' ? 'СМИ' : 'Организатора'} скопирован: ${res.data.code}`);
       fetchInvites();
-    } catch {
-      toast.error('Ошибка при генерации кода');
+    } catch (err) {
+      const detail = isAxiosError(err)
+        ? (err.response?.data as { detail?: string } | undefined)?.detail
+        : undefined;
+      toast.error(detail || 'Ошибка при генерации кода');
     }
   };
 

@@ -16,12 +16,22 @@ from .authentication import clear_auth_cookies, set_auth_cookies
 
 def _ensure_csrf_cookie(request) -> None:
     """Have CsrfViewMiddleware attach a csrftoken cookie on the way out so the
-    SPA can echo it in X-CSRFToken for unsafe methods."""
-    request.META['CSRF_COOKIE_NEEDS_UPDATE'] = True
-    django.middleware.csrf.get_token(request)
+    SPA can echo it in X-CSRFToken for unsafe methods.
+
+    The secret is rotated on every login — like Django's own login — so a
+    CSRF token fixed by a previous (unauthenticated) session cannot survive
+    into the authenticated one.
+    """
+    django.middleware.csrf.rotate_token(request)
 
 
 class CookieTokenObtainPairView(TokenObtainPairView):
+    # Credential-based views: never authenticate the caller's existing cookie
+    # session. Otherwise a still-valid access cookie with a stale csrftoken
+    # would get the login/refresh POST itself rejected with 403 CSRF Failed,
+    # leaving no way to recover the session.
+    authentication_classes = []
+
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)
         if response.status_code == 200 and 'access' in response.data:
@@ -34,6 +44,8 @@ class CookieTokenObtainPairView(TokenObtainPairView):
 
 
 class CookieTokenRefreshView(TokenRefreshView):
+    authentication_classes = []  # see CookieTokenObtainPairView
+
     def post(self, request, *args, **kwargs):
         # The refresh token normally lives in the httpOnly cookie; fall back to
         # the request body for non-browser clients.
@@ -53,14 +65,13 @@ class CookieTokenRefreshView(TokenRefreshView):
 
         result = serializer.validated_data
         response = Response({'status': 'ok'})
-        response.set_cookie(
-            settings.JWT_ACCESS_COOKIE, result['access'],
-            max_age=int(settings.SIMPLE_JWT['ACCESS_TOKEN_LIFETIME'].total_seconds()),
-            httponly=True,
-            secure=getattr(settings, 'JWT_COOKIE_SECURE', False),
-            samesite=getattr(settings, 'JWT_COOKIE_SAMESITE', 'Lax'),
-            path='/',
-        )
+        # Re-set both cookies with the configured domain so a refresh never
+        # spawns a second host-only `access` cookie next to the domain-wide
+        # one set at login (the browser would keep sending both). A rotated
+        # csrftoken rides along, healing clients whose csrftoken went stale
+        # or unreadable (see the 403-retry logic in the SPA's api client).
+        set_auth_cookies(response, result['access'], refresh)
+        _ensure_csrf_cookie(request)
         return response
 
 

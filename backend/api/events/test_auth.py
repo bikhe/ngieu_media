@@ -3,6 +3,7 @@ and the httpOnly-cookie JWT flow."""
 import time
 from unittest import mock
 
+from django.conf import settings
 from django.test import TestCase
 from django.utils.crypto import get_random_string
 from rest_framework import status
@@ -108,6 +109,116 @@ class InviteCodeTests(TestCase):
         self.client.force_authenticate(user=self.org)
         response = self.client.get('/api/invites/')
         self.assertEqual(response.data, [])
+
+
+class CookieCsrfBrowserFlowTests(TestCase):
+    """The full browser flow: login sets a csrftoken cookie, cookie-
+    authenticated unsafe requests must echo it in X-CSRFToken.
+
+    enforce_csrf_checks=True makes the DRF test client behave like the SPA:
+    cookies are stored, but no CSRF machinery is bypassed."""
+
+    def setUp(self):
+        self.client = APIClient(enforce_csrf_checks=True, HTTP_ORIGIN='https://mobile.pivas.su')
+        self.admin = User.objects.create_superuser(username='boss', password=PASSWORD)
+        self.target = User.objects.create_user(username='victim', password=PASSWORD)
+
+    def _login(self):
+        response = self.client.post('/api/token/', {'username': 'boss', 'password': PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('csrftoken', self.client.cookies)
+        return response
+
+    def _send_csrf_header(self):
+        self.client.credentials(HTTP_X_CSRFTOKEN=self.client.cookies['csrftoken'].value)
+
+    def test_cookie_authenticated_patch_with_csrf_token_succeeds(self):
+        self._login()
+        self._send_csrf_header()
+        response = self.client.patch(f'/api/users/{self.target.id}/', {'first_name': 'X'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['first_name'], 'X')
+
+    def test_cookie_authenticated_patch_without_token_names_the_reason(self):
+        self._login()
+        response = self.client.patch(f'/api/users/{self.target.id}/', {'first_name': 'X'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        # The detail must carry the actual CSRF failure reason, not the
+        # repr of a forbidden HttpResponse.
+        self.assertIn('CSRF token missing', response.json()['detail'])
+
+    def test_invite_create_with_csrf_token_succeeds(self):
+        self._login()
+        self._send_csrf_header()
+        response = self.client.post('/api/invites/', {'role': 'MEDIA'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_invite_create_without_csrf_token_rejected(self):
+        self._login()
+        response = self.client.post('/api/invites/', {'role': 'MEDIA'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn('CSRF', response.json()['detail'])
+
+    def test_wrong_csrf_token_rejected_with_reason(self):
+        self._login()
+        self.client.credentials(HTTP_X_CSRFTOKEN='a' * 32)
+        response = self.client.post('/api/invites/', {'role': 'MEDIA'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn('incorrect', response.json()['detail'])
+
+    def test_refresh_reissues_cookies_with_domain(self):
+        self._login()
+        response = self.client.post('/api/token/refresh/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # The access cookie must carry the shared domain, not spawn a
+        # host-only duplicate.
+        self.assertEqual(response.cookies['access']['domain'], settings.JWT_COOKIE_DOMAIN)
+        self.assertTrue(response.cookies['access']['httponly'])
+        # The refreshed session can still make unsafe requests: the rotated
+        # csrftoken came back with the response.
+        self.assertIn('csrftoken', response.cookies)
+        self._send_csrf_header()
+        response = self.client.post('/api/invites/', {'role': 'MEDIA'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_login_rotates_csrf_secret(self):
+        self._login()
+        first = self.client.cookies['csrftoken'].value
+        self.client.cookies.clear()
+        self._login()
+        self.assertNotEqual(first, self.client.cookies['csrftoken'].value)
+
+
+class EnsureCsrfCookieMiddlewareTests(TestCase):
+    """A client that presents the access cookie but lost its csrftoken gets a
+    fresh one on the next safe request — no re-login required."""
+
+    def setUp(self):
+        self.client = APIClient(enforce_csrf_checks=True)
+        self.admin = User.objects.create_superuser(username='boss', password=PASSWORD)
+        self.target = User.objects.create_user(username='victim', password=PASSWORD)
+
+    def test_safe_request_reissues_missing_csrf_cookie(self):
+        self.client.post('/api/token/', {'username': 'boss', 'password': PASSWORD})
+        del self.client.cookies['csrftoken']
+        response = self.client.get('/api/users/me/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('csrftoken', response.cookies)
+        self.assertEqual(response.cookies['csrftoken']['domain'], settings.CSRF_COOKIE_DOMAIN)
+
+    def test_healed_session_can_make_unsafe_requests(self):
+        self.client.post('/api/token/', {'username': 'boss', 'password': PASSWORD})
+        del self.client.cookies['csrftoken']
+        self.client.get('/api/users/me/')
+        self.client.credentials(HTTP_X_CSRFTOKEN=self.client.cookies['csrftoken'].value)
+        response = self.client.patch(f'/api/users/{self.target.id}/', {'first_name': 'Y'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_no_cookie_issued_without_access_cookie(self):
+        # Anonymous client (no access cookie) must not accumulate a
+        # csrftoken from plain API GETs.
+        response = self.client.get('/api/events/')
+        self.assertNotIn('csrftoken', response.cookies)
 
 
 class CookieTokenFlowTests(TestCase):

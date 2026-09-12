@@ -198,8 +198,8 @@ const UsersManagement = () => {
     } catch (err) {
       let errMsg = "Ошибка сохранения";
       if (isAxiosError(err)) {
-        const data = err.response?.data as { error?: string; username?: string[] } | undefined;
-        errMsg = data?.error || data?.username?.[0] || "Ошибка сохранения";
+        const data = err.response?.data as { error?: string; detail?: string; username?: string[] } | undefined;
+        errMsg = data?.error || data?.detail || data?.username?.[0] || "Ошибка сохранения";
       }
       toast.error(errMsg);
     }

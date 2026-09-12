@@ -26,6 +26,21 @@ class Command(BaseCommand):
         bot = Bot(token=token)
         dp = Dispatcher()
 
+        webapp_url = getattr(settings, 'TELEGRAM_WEBAPP_URL', 'https://admin.pivas.su')
+
+        # Configure permanent chat Menu Button (at bottom-left of Telegram chat)
+        if webapp_url.startswith('https://'):
+            try:
+                await bot.set_chat_menu_button(
+                    menu_button=types.MenuButtonWebApp(
+                        text="🚀 Открыть Биржу",
+                        web_app=types.WebAppInfo(url=webapp_url)
+                    )
+                )
+                self.stdout.write(f"Telegram WebApp Menu Button configured to: {webapp_url}")
+            except Exception as e:
+                self.stderr.write(f"Warning: Could not set Telegram WebApp Menu Button: {e}")
+
         @dp.message(CommandStart())
         async def cmd_start(message: types.Message):
             user_id = str(message.from_user.id)
@@ -33,19 +48,19 @@ class Command(BaseCommand):
             # Check if user exists in the database
             user = await sync_to_async(self.get_user)(user_id)
             
-            webapp_url = getattr(settings, 'TELEGRAM_WEBAPP_URL', 'http://localhost:5173')
+            current_webapp_url = getattr(settings, 'TELEGRAM_WEBAPP_URL', 'https://admin.pivas.su')
             
             # Build inline keyboard (Telegram Web Apps require HTTPS)
             builder = InlineKeyboardBuilder()
-            if webapp_url.startswith('https://'):
+            if current_webapp_url.startswith('https://'):
                 builder.button(
                     text="🚀 Открыть Биржу СМИ",
-                    web_app=types.WebAppInfo(url=webapp_url)
+                    web_app=types.WebAppInfo(url=current_webapp_url)
                 )
             else:
                 builder.button(
                     text="🚀 Открыть Биржу СМИ",
-                    url=webapp_url
+                    url=current_webapp_url
                 )
             markup = builder.as_markup()
 
@@ -66,11 +81,11 @@ class Command(BaseCommand):
                 )
 
             try:
-                from aiogram.exceptions import TelegramBadRequest
                 await message.answer(text, reply_markup=markup, parse_mode="HTML")
             except Exception as e:
+                self.stderr.write(f"Error sending start message with markup: {e}")
                 # Если URL-кнопки невалиден для Telegram (например http://localhost)
-                text += "\n\n<i>⚠️ Кнопка недоступна: для локальной разработки используйте ngrok и пропишите HTTPS-адрес в TELEGRAM_WEBAPP_URL.</i>"
+                text += "\n\n<i>⚠️ Кнопка недоступна: проверьте, что TELEGRAM_WEBAPP_URL начинается с https://</i>"
                 await message.answer(text, parse_mode="HTML")
 
         @dp.message(Command("password"))

@@ -138,9 +138,18 @@ const refreshSession = (): Promise<boolean> => {
 
 interface RetriableConfig {
   __retried?: boolean;
+  __csrfRetried?: boolean;
 }
 
-// Response interceptor: transparently refresh an expired session.
+const isCsrfRejection = (error: unknown): boolean => {
+  if (!axios.isAxiosError(error) || error.response?.status !== 403) return false;
+  const detail = (error.response.data as { detail?: string } | undefined)?.detail;
+  return typeof detail === 'string' && detail.startsWith('CSRF');
+};
+
+// Response interceptor: transparently refresh an expired session, and recover
+// a stale CSRF cookie (e.g. from before the shared cookie domain was set) by
+// refreshing once — the refresh response re-issues a valid csrftoken.
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -152,6 +161,14 @@ api.interceptors.response.use(
 
     if (error.response?.status === 401 && !isAuthCall && hasSession && original && !original.__retried) {
       original.__retried = true;
+      const refreshed = await refreshSession();
+      if (refreshed) {
+        return api(original);
+      }
+    }
+
+    if (isCsrfRejection(error) && !isAuthCall && original && !original.__csrfRetried) {
+      original.__csrfRetried = true;
       const refreshed = await refreshSession();
       if (refreshed) {
         return api(original);

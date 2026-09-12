@@ -30,10 +30,9 @@ from .authentication import set_auth_cookies
 
 
 def _ensure_csrf_cookie(request) -> None:
-    """Have CsrfViewMiddleware attach a csrftoken cookie on the way out so the
-    SPA can echo it in X-CSRFToken for unsafe methods."""
-    request.META['CSRF_COOKIE_NEEDS_UPDATE'] = True
-    django.middleware.csrf.get_token(request)
+    """Rotate and attach the csrftoken cookie on login responses so the SPA
+    can echo it in X-CSRFToken for unsafe methods."""
+    django.middleware.csrf.rotate_token(request)
 
 ENABLE_MULTIPLE_PHOTOGRAPHERS = getattr(settings, 'ENABLE_MULTIPLE_PHOTOGRAPHERS', True)
 ENABLE_STRICT_DEADLINES = getattr(settings, 'ENABLE_STRICT_DEADLINES', True)
@@ -654,7 +653,8 @@ class InviteCodeViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     def get_queryset(self): return InviteCode.objects.filter(is_used=False) if self.request.user.role == 'MAIN_ADMIN' else InviteCode.objects.none()
     def create(self, request, *args, **kwargs):
-        if request.user.role != 'MAIN_ADMIN': return Response(status=403)
+        if request.user.role != 'MAIN_ADMIN':
+            return Response({'detail': 'Только администратор может создавать инвайт-коды.'}, status=403)
         role = request.data.get('role', 'ORGANIZER')
         if role not in ['MEDIA', 'ORGANIZER']:
             return Response({'error': 'Недопустимая роль'}, status=400)

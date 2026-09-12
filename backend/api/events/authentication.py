@@ -16,6 +16,18 @@ def _dummy_get_response(request):
     return None
 
 
+class CSRFCheck(CsrfViewMiddleware):
+    """CsrfViewMiddleware variant whose _reject returns the failure reason.
+
+    The stock middleware returns the CSRF failure-view HttpResponse from
+    process_view(), which is useless when interpolated into a PermissionDenied
+    detail. Mirrors rest_framework.authentication.CSRFCheck.
+    """
+
+    def _reject(self, request, reason):
+        return reason
+
+
 class CookieJWTAuthentication(JWTAuthentication):
     """Authenticates via Authorization header (B2B clients, SSE broker) or
     via the httpOnly access cookie (browsers)."""
@@ -39,7 +51,7 @@ class CookieJWTAuthentication(JWTAuthentication):
 
     def _enforce_csrf(self, request):
         # Same approach as DRF's SessionAuthentication.enforce_csrf.
-        check = CsrfViewMiddleware(_dummy_get_response)
+        check = CSRFCheck(_dummy_get_response)
         check.process_request(request)
         rejection_reason = check.process_view(request, None, (), {})
         if rejection_reason:
@@ -64,6 +76,13 @@ def set_auth_cookies(response, access: str, refresh: str) -> None:
 
 
 def clear_auth_cookies(response) -> None:
-    """Remove auth cookies (logout / failed refresh)."""
-    response.delete_cookie(settings.JWT_ACCESS_COOKIE, path='/', domain=getattr(settings, 'JWT_COOKIE_DOMAIN', None))
-    response.delete_cookie(settings.JWT_REFRESH_COOKIE, path='/', domain=getattr(settings, 'JWT_COOKIE_DOMAIN', None))
+    """Remove auth cookies (logout / failed refresh).
+
+    Both the domain-wide and the host-only variant are deleted: sessions
+    created before JWT_COOKIE_DOMAIN was introduced hold host-only cookies,
+    and delete_cookie() only removes the exact variant it is called with.
+    """
+    domain = getattr(settings, 'JWT_COOKIE_DOMAIN', None)
+    for name in (settings.JWT_ACCESS_COOKIE, settings.JWT_REFRESH_COOKIE):
+        response.delete_cookie(name, path='/', domain=domain)
+        response.delete_cookie(name, path='/')

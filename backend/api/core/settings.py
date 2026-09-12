@@ -49,6 +49,7 @@ MIDDLEWARE = [
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
+    'events.middleware.EnsureCsrfCookieMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
@@ -154,6 +155,11 @@ CSRF_TRUSTED_ORIGINS = os.getenv(
     'https://api.pivas.su,https://admin.pivas.su,https://mobile.pivas.su,http://localhost:5173,http://localhost:8000'
 ).split(',')
 
+# SECURE_PROXY_SSL_HEADER & USE_X_FORWARDED_HOST
+# Критично при работе за Nginx по HTTPS: говорит Django доверять заголовку X-Forwarded-Proto от Nginx.
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+USE_X_FORWARDED_HOST = True
+
 # Настройки Django REST Framework
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
@@ -179,9 +185,15 @@ JWT_REFRESH_COOKIE = 'refresh'
 JWT_COOKIE_SECURE = os.getenv('JWT_COOKIE_SECURE', str(not DEBUG)).lower() in ('true', '1', 't')
 JWT_COOKIE_SAMESITE = os.getenv('JWT_COOKIE_SAMESITE', 'Lax')  # admin/mobile — поддомены одного сайта
 CSRF_COOKIE_HTTPONLY = False  # JS читает csrftoken и шлёт его в X-CSRFToken
-CSRF_COOKIE_DOMAIN = '.pivas.su'
-SESSION_COOKIE_DOMAIN = '.pivas.su'
-JWT_COOKIE_DOMAIN = '.pivas.su'
+CSRF_COOKIE_SECURE = JWT_COOKIE_SECURE  # те же условия доставки, что и у auth-cookie
+
+COOKIE_DOMAIN = os.getenv('COOKIE_DOMAIN', '.pivas.su')
+if COOKIE_DOMAIN.lower() in ('none', 'false', ''):
+    COOKIE_DOMAIN = None
+
+CSRF_COOKIE_DOMAIN = COOKIE_DOMAIN
+SESSION_COOKIE_DOMAIN = COOKIE_DOMAIN
+JWT_COOKIE_DOMAIN = COOKIE_DOMAIN
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
