@@ -5,6 +5,8 @@ backend/.venv/
 backend/api/.venv/
 backend/api/.venv2/
 venv/
+/.dev/
+/.dev.env
 __pycache__*/
 *.pyc
 *.pyo

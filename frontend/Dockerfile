@@ -1,12 +1,13 @@
-FROM oven/bun:alpine
+FROM node:22-alpine
 
 WORKDIR /app
 
 # Copy package files first to leverage Docker cache
 COPY package*.json ./
 
-# Install dependencies
-RUN bun install
+# Install dependencies from the committed lockfile so font packages are
+# present when Vite resolves the CSS imports.
+RUN npm ci
 
 # Copy all application files
 COPY . .
@@ -15,4 +16,4 @@ COPY . .
 EXPOSE 5173
 
 # Start Vite dev server bound to all interfaces
-CMD ["bun", "run", "dev", "--", "--host"]
+CMD ["npm", "run", "dev", "--", "--host"]
