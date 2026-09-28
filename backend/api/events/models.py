@@ -331,8 +331,9 @@ def _get_redis_publisher():
     global _redis_publisher
     if _redis_publisher is None:
         redis_host = os.environ.get('REDIS_HOST', 'redis')
+        redis_port = int(os.environ.get('REDIS_PORT', '6379'))
         _redis_publisher = redis.Redis(
-            host=redis_host, port=6379, db=0,
+            host=redis_host, port=redis_port, db=0,
             socket_connect_timeout=1, socket_timeout=1,
         )
     return _redis_publisher

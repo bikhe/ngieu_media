@@ -32,11 +32,20 @@ load_config() {
   : "${DB_NAME:=events_db}"
   : "${DB_USER:=events_user}"
   : "${DB_PASSWORD:=dev_password}"
+  REDIS_ENDPOINT="${REDIS_URL#*://}"
+  REDIS_ENDPOINT="${REDIS_ENDPOINT%%/*}"
+  REDIS_HOST="${REDIS_ENDPOINT%%:*}"
+  if [[ "$REDIS_ENDPOINT" == *:* ]]; then
+    REDIS_PORT="${REDIS_ENDPOINT##*:}"
+  else
+    REDIS_PORT=6379
+  fi
   apply_config_env
 }
 
 apply_config_env() {
   export DB_HOST DB_PORT DB_NAME DB_USER DB_PASSWORD
+  export REDIS_HOST REDIS_PORT
   export CELERY_BROKER_URL="$REDIS_URL"
 }
 
@@ -61,26 +70,31 @@ EOF
 
 ensure_backend_env() {
   local env_file="$BACKEND_DIR/.env"
+  local temp_file
+  temp_file="$(mktemp)"
   if [[ -f "$env_file" ]]; then
-    return
+    awk '!/^(DB_NAME|DB_USER|DB_PASSWORD|DB_HOST|DB_PORT|REDIS_HOST|REDIS_PORT|CELERY_BROKER_URL|TELEGRAM_WEBAPP_URL|CORS_ALLOW_ALL_ORIGINS|ENABLE_TELEGRAM_BOT)=/' "$env_file" > "$temp_file"
+  else
+    printf '%s\n' \
+      'SECRET_KEY=dev-only-secret-key' \
+      'DEBUG=True' \
+      'ALLOWED_HOSTS=localhost,127.0.0.1' > "$temp_file"
   fi
-
-  cat > "$env_file" <<EOF
-SECRET_KEY=dev-only-secret-key
-DEBUG=True
-ALLOWED_HOSTS=localhost,127.0.0.1
+  cat >> "$temp_file" <<EOF
 DB_NAME=$DB_NAME
 DB_USER=$DB_USER
 DB_PASSWORD=$DB_PASSWORD
 DB_HOST=$DB_HOST
 DB_PORT=$DB_PORT
+REDIS_HOST=$REDIS_HOST
+REDIS_PORT=$REDIS_PORT
 CELERY_BROKER_URL=$REDIS_URL
-TELEGRAM_BOT_TOKEN=
 TELEGRAM_WEBAPP_URL=http://localhost:$FRONTEND_PORT
 CORS_ALLOW_ALL_ORIGINS=True
 ENABLE_TELEGRAM_BOT=False
 EOF
-  echo "Создан $env_file с локальными настройками."
+  mv "$temp_file" "$env_file"
+  echo "Синхронизирован $env_file с настройками лаунчера."
 }
 
 venv_python() {
@@ -104,8 +118,8 @@ check_infrastructure() {
     echo "PostgreSQL недоступен на $DB_HOST:$DB_PORT."
     failed=1
   fi
-  if ! (echo >/dev/tcp/127.0.0.1/6379) 2>/dev/null; then
-    echo "Redis недоступен на 127.0.0.1:6379."
+  if ! (echo >/dev/tcp/"$REDIS_HOST"/"$REDIS_PORT") 2>/dev/null; then
+    echo "Redis недоступен на $REDIS_HOST:$REDIS_PORT."
     failed=1
   fi
   return "$failed"
@@ -149,13 +163,13 @@ start_service() {
   case "$service" in
     backend)
       ensure_backend_env
-      command=("$BACKEND_DIR/.venv/bin/python" "$BACKEND_DIR/manage.py" runserver "$BACKEND_HOST:$BACKEND_PORT")
+      command=("$BACKEND_DIR/.venv/bin/python" "$BACKEND_DIR/manage.py" runserver --noreload "$BACKEND_HOST:$BACKEND_PORT")
       ;;
     broker)
-      command=(env BACKEND_URL="http://$BACKEND_HOST:$BACKEND_PORT" CORS_ALLOWED_ORIGINS="http://localhost:$FRONTEND_PORT" "$BROKER_DIR/.venv/bin/uvicorn" main:app --host "$BROKER_HOST" --port "$BROKER_PORT" --reload)
+      command=(env BACKEND_URL="http://$BACKEND_HOST:$BACKEND_PORT" CORS_ALLOWED_ORIGINS="http://localhost:$FRONTEND_PORT" "$BROKER_DIR/.venv/bin/uvicorn" main:app --host "$BROKER_HOST" --port "$BROKER_PORT")
       ;;
     frontend)
-      command=(npm run dev --prefix "$FRONTEND_DIR" -- --host "$FRONTEND_HOST" --port "$FRONTEND_PORT")
+      command=(env VITE_API_URL="http://$BACKEND_HOST:$BACKEND_PORT/api" npm run dev --prefix "$FRONTEND_DIR" -- --host "$FRONTEND_HOST" --port "$FRONTEND_PORT")
       ;;
     celery)
       command=("$BACKEND_DIR/.venv/bin/celery" -A core worker -l info)
@@ -167,7 +181,9 @@ start_service() {
   esac
 
   if [[ "${command[0]}" == "env" ]]; then
-    [[ -x "${command[3]}" ]] || {
+    local executable_index=3
+    [[ "${command[2]}" == "npm" ]] && executable_index=2
+    [[ -x "${command[$executable_index]}" ]] || {
       echo "Сначала выберите пункт подготовки зависимостей."
       return 1
     }
@@ -184,7 +200,7 @@ start_service() {
     elif [[ "$service" == frontend ]]; then
       cd "$FRONTEND_DIR"
     fi
-    nohup "${command[@]}" >> "$(service_log_file "$service")" 2>&1 &
+    setsid nohup "${command[@]}" >> "$(service_log_file "$service")" 2>&1 &
     echo $! > "$pid_file"
   )
   sleep 1
@@ -203,7 +219,14 @@ stop_service() {
     return
   fi
   pid="$(cat "$pid_file")"
-  kill "$pid"
+  kill -TERM -- "-$pid" 2>/dev/null || kill "$pid"
+  for _ in {1..20}; do
+    is_running "$pid_file" || break
+    sleep 0.25
+  done
+  if is_running "$pid_file"; then
+    kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid"
+  fi
   rm -f "$pid_file"
   echo "$service остановлен."
 }
