@@ -46,21 +46,34 @@ export const useUpdatesBroker = (entityTypes: string[], onUpdate: (log: UpdateLo
     if (sseRef.current) return;
 
     let active = true;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
-    const startBroker = async () => {
+    const scheduleReconnect = () => {
+      if (!active || reconnectTimer) return;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        void connect();
+      }, 1000);
+    };
+
+    const connect = async () => {
+      if (!active || sseRef.current) return;
       try {
-        const initRes = await api.get('updates/');
-        lastIdRef.current = initRes.data.last_id || 0;
-
-        if (!active) return;
-
         // Exchange the regular JWT (via axios auth header) for a short-lived
         // ticket, so no long-lived credential ends up in the stream URL.
-        const { data: ticketData } = await api.post<{ ticket: string }>('updates/');
-        if (!active) return;
+        const { data: ticketData } = await api.post<{ ticket: string; expires_in?: number }>('updates/');
+        if (!active || !ticketData.ticket) return;
 
         const sse = new EventSource(buildStreamUrl(lastIdRef.current, ticketData.ticket));
         sseRef.current = sse;
+        const refreshIn = Math.max(1000, ((ticketData.expires_in ?? 30) - 5) * 1000);
+        refreshTimer = setTimeout(() => {
+          refreshTimer = null;
+          sse.close();
+          sseRef.current = null;
+          void connect();
+        }, refreshIn);
 
         sse.onmessage = (event) => {
           if (!active) return;
@@ -83,20 +96,44 @@ export const useUpdatesBroker = (entityTypes: string[], onUpdate: (log: UpdateLo
           }
         };
 
-        // Native EventSource reconnects automatically on error — no manual retry needed.
         sse.onerror = () => {
-          console.warn('SSE connection interrupted, browser will auto-reconnect.');
+          sse.close();
+          if (sseRef.current === sse) sseRef.current = null;
+          if (refreshTimer) {
+            clearTimeout(refreshTimer);
+            refreshTimer = null;
+          }
+          scheduleReconnect();
         };
 
       } catch (err) {
-        console.error('Failed to initialize updates broker:', err);
+        if (active) {
+          console.error('Failed to initialize updates broker:', err);
+          scheduleReconnect();
+        }
       }
     };
 
-    startBroker();
+    const initialize = async () => {
+      try {
+        const initRes = await api.get('updates/');
+        if (active) {
+          lastIdRef.current = initRes.data.last_id || 0;
+          await connect();
+        }
+      } catch (err) {
+        if (active) {
+          console.error('Failed to initialize updates broker:', err);
+          scheduleReconnect();
+        }
+      }
+    };
+    void initialize();
 
     return () => {
       active = false;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (refreshTimer) clearTimeout(refreshTimer);
       if (sseRef.current) {
         sseRef.current.close();
         sseRef.current = null;

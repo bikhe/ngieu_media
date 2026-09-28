@@ -146,14 +146,16 @@ AUTH_USER_MODEL = 'events.User'
 
 # Настройки CORS (чтобы React и Flutter могли делать запросы)
 CORS_ALLOW_ALL_ORIGINS = os.getenv('CORS_ALLOW_ALL_ORIGINS', 'False').lower() in ('true', '1', 't')  # Secure default: deny all origins unless explicitly enabled
-CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', 'https://admin.pivas.su,https://mobile.pivas.su').split(',')
+CORS_ALLOWED_ORIGINS = [origin.strip() for origin in os.getenv(
+    'CORS_ALLOWED_ORIGINS', 'https://admin.pivas.su,https://mobile.pivas.su'
+).split(',') if origin.strip()]
 CORS_ALLOW_CREDENTIALS = True  # httpOnly-cookie аутентификация
 
 # Настройки доверенных источников для CSRF (необходимо для Django Admin по HTTPS)
-CSRF_TRUSTED_ORIGINS = os.getenv(
+CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in os.getenv(
     'CSRF_TRUSTED_ORIGINS',
     'https://api.pivas.su,https://admin.pivas.su,https://mobile.pivas.su,http://localhost:5173,http://localhost:8000'
-).split(',')
+).split(',') if origin.strip()]
 
 # SECURE_PROXY_SSL_HEADER & USE_X_FORWARDED_HOST
 # Критично при работе за Nginx по HTTPS: говорит Django доверять заголовку X-Forwarded-Proto от Nginx.
@@ -187,6 +189,9 @@ JWT_COOKIE_SAMESITE = os.getenv('JWT_COOKIE_SAMESITE', 'Lax')  # admin/mobile �
 CSRF_COOKIE_HTTPONLY = False  # JS читает csrftoken и шлёт его в X-CSRFToken
 CSRF_COOKIE_SECURE = JWT_COOKIE_SECURE  # те же условия доставки, что и у auth-cookie
 
+# The SPA reads the CSRF cookie from a sibling subdomain. Set COOKIE_DOMAIN
+# to a narrower host only after switching the frontend to a same-origin CSRF
+# endpoint.
 COOKIE_DOMAIN = os.getenv('COOKIE_DOMAIN', '.pivas.su')
 if COOKIE_DOMAIN.lower() in ('none', 'false', ''):
     COOKIE_DOMAIN = None

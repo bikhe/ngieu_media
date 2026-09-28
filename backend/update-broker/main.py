@@ -2,10 +2,9 @@ import os
 import json
 import asyncio
 import httpx
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.sse import EventSourceResponse
-import redis.asyncio as redis
 
 app = FastAPI()
 
@@ -19,7 +18,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://backend:8000")
 
 # Keepalive interval in seconds — prevents browser from closing idle SSE connections
@@ -30,71 +28,56 @@ async def event_generator(request: Request, since_id: int, ticket: str = None):
     # Send retry directive: client waits 5s before reconnecting (default is ~3s)
     yield {"event": "message", "retry": 5000, "data": json.dumps({"type": "connected"})}
 
-    # 1. Fetch missed logs from Django backend first
     try:
+        last_ping = asyncio.get_running_loop().time()
         async with httpx.AsyncClient() as client:
-            url = f"{BACKEND_URL}/api/updates/?since_id={since_id}"
-            if ticket:
-                url += f"&ticket={ticket}"
-            resp = await client.get(url, timeout=10)
-            if resp.status_code == 200:
+            while True:
+                if await request.is_disconnected():
+                    break
+
+                # Poll the authenticated API rather than forwarding the
+                # global Redis channel. The API filters logs for this user.
+                resp = await client.get(
+                    f"{BACKEND_URL}/api/updates/",
+                    params={"since_id": since_id, "ticket": ticket},
+                    timeout=10,
+                )
+                if resp.status_code in (401, 403):
+                    raise HTTPException(status_code=401, detail="Invalid or expired SSE ticket")
+                resp.raise_for_status()
                 data = resp.json()
-                logs = data.get('logs', [])
+                logs = data.get("logs", [])
                 if logs:
+                    since_id = data.get("last_id", since_id)
                     yield {
                         "event": "message",
                         "data": json.dumps({"type": "updates", "logs": logs})
                     }
-    except Exception as e:
-        print(f"Error fetching initial logs: {e}")
 
-    # 2. Listen to Redis for real-time updates
-    redis_client = redis.Redis(host=REDIS_HOST, port=6379, db=0, decode_responses=True)
-    pubsub = redis_client.pubsub()
+                now = asyncio.get_running_loop().time()
+                if now - last_ping >= KEEPALIVE_INTERVAL:
+                    yield {"event": "message", "data": json.dumps({"type": "ping"})}
+                    last_ping = now
 
-    try:
-        await pubsub.subscribe("ngieu_updates")
-        last_ping = asyncio.get_running_loop().time()
-
-        while True:
-            if await request.is_disconnected():
-                break
-
-            # Send keepalive ping to prevent browser/proxy from closing the connection
-            now = asyncio.get_running_loop().time()
-            if now - last_ping >= KEEPALIVE_INTERVAL:
-                yield {"event": "message", "data": json.dumps({"type": "ping"})}
-                last_ping = now
-
-            try:
-                message = await asyncio.wait_for(
-                    pubsub.get_message(ignore_subscribe_messages=True),
-                    timeout=1.0
-                )
-            except asyncio.TimeoutError:
-                continue
-            except Exception as e:
-                print(f"Redis get_message error: {e}")
                 await asyncio.sleep(1)
-                continue
-
-            if message:
-                yield {
-                    "event": "message",
-                    "data": message["data"]
-                }
-
-    except Exception as e:
-        print(f"SSE generator error: {e}")
-    finally:
-        try:
-            await pubsub.unsubscribe("ngieu_updates")
-            await redis_client.aclose()
-        except Exception:
-            pass
+    except httpx.HTTPError as e:
+        print(f"Error fetching updates: {e}")
 
 
 @app.get("/stream")
 async def sse_stream(request: Request, since_id: int = 0, ticket: str = None):
+    if not ticket:
+        raise HTTPException(status_code=401, detail="SSE ticket is required")
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{BACKEND_URL}/api/updates/",
+                params={"since_id": since_id, "ticket": ticket},
+                timeout=10,
+            )
+        if response.status_code in (401, 403):
+            raise HTTPException(status_code=401, detail="Invalid or expired SSE ticket")
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=503, detail="Update service unavailable") from exc
     return EventSourceResponse(event_generator(request, since_id, ticket), ping=0)
-
