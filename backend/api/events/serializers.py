@@ -15,7 +15,7 @@ class EventTemplateSerializer(serializers.ModelSerializer):
 class PublicUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id', 'username', 'first_name', 'last_name', 'role', 'skill_level']
+        fields = ['id', 'username', 'first_name', 'last_name', 'skill_level']
 
 
 class UserSerializer(serializers.ModelSerializer):
