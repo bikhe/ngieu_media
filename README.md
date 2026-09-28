@@ -185,6 +185,19 @@ docker compose exec backend python manage.py createsuperuser
     docker compose exec backend python manage.py shell
     ```
 
+## Проверки качества
+
+Перед отправкой изменений выполните из корня репозитория:
+
+```bash
+npm ci --prefix frontend
+npm run lint
+npm run build
+```
+
+Интеграционные тесты Playwright запускаются командой `npm run test:e2e` и требуют
+запущенных сервисов и переменных `E2E_ADMIN_PASSWORD` и `E2E_MEDIA_PASSWORD`.
+
 ---
 
 ## Лицензия

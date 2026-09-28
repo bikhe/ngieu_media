@@ -14,6 +14,7 @@ from django.http import HttpResponse
 from django.utils.crypto import get_random_string
 from django.utils import timezone
 from django.db import transaction
+from django.db.models import Q
 from rest_framework import viewsets, filters, status
 from rest_framework.views import APIView
 from rest_framework.decorators import action
@@ -88,9 +89,11 @@ class UserViewSet(viewsets.ModelViewSet):
 
     def check_permissions(self, request):
         super().check_permissions(request)
-        if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            if request.user.role != 'MAIN_ADMIN':
-                raise PermissionDenied("Только администратор может управлять учетными записями.")
+        is_admin = request.user.role == 'MAIN_ADMIN' or request.user.is_staff or request.user.is_superuser
+        if self.action == 'me':
+            return
+        if not is_admin:
+            raise PermissionDenied("Только администратор может просматривать и управлять учетными записями.")
 
     def perform_create(self, serializer):
         password = self.request.data.get('password')
@@ -223,25 +226,29 @@ class EventViewSet(viewsets.ModelViewSet):
                 qs = qs.filter(media_participants__id__in=media_ids).distinct()
 
         qs = qs.order_by('-date')
-        response = HttpResponse(content_type='text/csv')
+        response = HttpResponse(content_type='text/csv; charset=utf-8')
         response['Content-Disposition'] = 'attachment; filename="report.csv"'
         response.write('\ufeff'.encode('utf8'))
-        writer = csv.writer(response, delimiter=';')
+        writer = csv.writer(response, delimiter=';', lineterminator='\r\n')
+        def csv_cell(value):
+            value = '' if value is None else str(value)
+            return f"'{value}" if value[:1] in ('=', '+', '-', '@') else value
+
         writer.writerow(['Название съёмки', 'Дата', 'Время', 'Локация', 'Тип контента', 'Сложность', 'Статус', 'Организатор', 'Исполнители (СМИ)', 'Забронированная техника', 'Комментарий', 'Ссылка на результат'])
         for e in qs:
             writer.writerow([
-                e.title,
+                csv_cell(e.title),
                 e.date.strftime("%d.%m.%Y") if e.date else "",
                 e.time.strftime("%H:%M") if e.time else "",
-                e.location,
+                csv_cell(e.location),
                 e.get_content_type_display(),
                 e.required_skill,
                 e.get_status_display(),
-                e.responsible_person.username,
-                ", ".join([u.username for u in e.media_participants.all()]),
-                ", ".join([eq.name for eq in e.booked_equipment.all()]),
-                e.description or "",
-                e.result_link or ""
+                csv_cell(e.responsible_person.username if e.responsible_person else ''),
+                csv_cell(", ".join([u.username for u in e.media_participants.all()])),
+                csv_cell(", ".join([eq.name for eq in e.booked_equipment.all()])),
+                csv_cell(e.description),
+                csv_cell(e.result_link),
             ])
         return response
 
@@ -900,6 +907,25 @@ class EventRoleViewSet(viewsets.ModelViewSet):
 class UpdatesView(APIView):
     permission_classes = [AllowAny]
 
+    def _visible_logs(self, user, since_id):
+        if user.role == 'MAIN_ADMIN' or user.is_staff or user.is_superuser or getattr(user, 'can_view_all_events', False):
+            return UpdateLog.objects.filter(id__gt=since_id).order_by('id')
+
+        if user.role == 'MEDIA':
+            visible_events = Event.objects.exclude(status__in=['PENDING', 'REJECTED'])
+        else:
+            visible_events = Event.objects.filter(responsible_person=user)
+
+        visible_event_ids = visible_events.values('id')
+        visible_comment_ids = Comment.objects.filter(event_id__in=visible_event_ids).values('id')
+        visible_loan_ids = EquipmentLoan.objects.filter(user=user).values('id')
+        return UpdateLog.objects.filter(id__gt=since_id).filter(
+            Q(entity_type='event', entity_id__in=visible_event_ids)
+            | Q(entity_type='comment', entity_id__in=visible_comment_ids)
+            | Q(entity_type='loan', entity_id__in=visible_loan_ids)
+            | Q(entity_type='equipment')
+        ).order_by('id')
+
     def get(self, request):
         user = request.user
         if not user or not user.is_authenticated:
@@ -920,10 +946,10 @@ class UpdatesView(APIView):
         
         last_id = int(since_id) if since_id and since_id.isdigit() else None
         if last_id is None:
-            latest = UpdateLog.objects.order_by('-id').first()
+            latest = self._visible_logs(user, -1).last()
             return Response({'last_id': latest.id if latest else 0, 'logs': []})
 
-        new_logs = UpdateLog.objects.filter(id__gt=last_id).order_by('id')
+        new_logs = self._visible_logs(user, last_id)
         logs_data = [{
             'id': log.id,
             'entity_type': log.entity_type,

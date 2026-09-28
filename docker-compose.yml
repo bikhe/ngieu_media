@@ -6,9 +6,9 @@ services:
     environment:
       POSTGRES_DB: ${DB_NAME:-events_db}
       POSTGRES_USER: ${DB_USER:-events_user}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-Set-Your-Password}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -16,14 +16,14 @@ services:
     image: redis:7-alpine
     restart: always
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
 
   backend:
     build:
       context: ./backend/api
     restart: always
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./backend/api:/app
     depends_on:
@@ -55,7 +55,7 @@ services:
       context: ./frontend
     restart: always
     ports:
-      - "5173:5173"
+      - "127.0.0.1:5173:5173"
     volumes:
       - ./frontend:/app
       - /app/node_modules
@@ -69,7 +69,7 @@ services:
       context: ./backend/update-broker
     restart: always
     ports:
-      - "8001:8001"
+      - "127.0.0.1:8001:8001"
     volumes:
       - ./backend/update-broker:/app
     command: uvicorn main:app --host 0.0.0.0 --port 8001 --reload

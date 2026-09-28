@@ -12,10 +12,21 @@ class EventTemplateSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
+class PublicUserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'first_name', 'last_name', 'role', 'skill_level']
+
+
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id', 'username', 'first_name', 'last_name', 'role', 'telegram_id', 'phone_number', 'skill_level', 'is_staff', 'is_superuser', 'can_approve_events', 'can_manage_warehouse', 'can_view_all_events']
+        fields = [
+            'id', 'username', 'first_name', 'last_name', 'role', 'telegram_id',
+            'phone_number', 'skill_level', 'is_staff', 'is_superuser',
+            'can_approve_events', 'can_manage_warehouse', 'can_view_all_events',
+        ]
+        read_only_fields = ['is_staff', 'is_superuser']
 
 class InviteCodeSerializer(serializers.ModelSerializer):
     class Meta: model = InviteCode; fields = '__all__'
@@ -37,15 +48,15 @@ class EquipmentSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'total_quantity', 'description', 'serial_number', 'status', 'category', 'available_quantity']
 
 class CommentSerializer(serializers.ModelSerializer):
-    author = UserSerializer(read_only=True)
+    author = PublicUserSerializer(read_only=True)
     class Meta:
         model = Comment
         fields = ['id', 'event', 'author', 'text', 'created_at']
         read_only_fields = ['author', 'event']
 
 class EventSerializer(serializers.ModelSerializer):
-    responsible_person = UserSerializer(read_only=True)
-    media_participants = UserSerializer(many=True, read_only=True)
+    responsible_person = PublicUserSerializer(read_only=True)
+    media_participants = PublicUserSerializer(many=True, read_only=True)
     media_participant_ids = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.filter(role='MEDIA'), source='media_participants', many=True, write_only=True, required=False
     )
@@ -103,7 +114,7 @@ class EventSerializer(serializers.ModelSerializer):
         return attrs
 
 class EquipmentLoanSerializer(serializers.ModelSerializer):
-    user = UserSerializer(read_only=True)
+    user = PublicUserSerializer(read_only=True)
     equipment = EquipmentSerializer(read_only=True)
     equipment_id = serializers.PrimaryKeyRelatedField(
         queryset=Equipment.objects.all(), source='equipment', write_only=True
