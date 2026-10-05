@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Dialog, DialogTitle, DialogContent, DialogActions, TextField, Button, Stack, FormControl, InputLabel, Select, MenuItem, OutlinedInput, Box, Chip, Collapse } from '@mui/material';
+import { Dialog, DialogTitle, DialogContent, DialogActions, TextField, Button, Stack, FormControl, InputLabel, Select, MenuItem, OutlinedInput, Box, Chip, Collapse, Alert } from '@mui/material';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { apiService } from '../services/api';
 import type { EventTemplate, Equipment } from '../services/api';
@@ -26,6 +26,7 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({ open, onClose, e
     max_participants: 1, equipment_ids: [] as number[]
   });
   const [loading, setLoading] = useState(false);
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   const [locations, setLocations] = useState<{ id: number; name: string }[]>([]);
   const [createLocation, setCreateLocation] = useState({ open: false, name: '' });
@@ -94,6 +95,16 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({ open, onClose, e
   };
 
   const handleSave = async () => {
+    const errors: Record<string, string> = {};
+    if (!form.title.trim()) errors.title = 'Введите название события';
+    if (!form.date) errors.date = 'Выберите дату';
+    if (!form.time) errors.time = 'Укажите время начала';
+    if (form.end_time && form.time && form.end_time <= form.time) errors.end_time = 'Время окончания должно быть позже начала';
+    if (!form.max_participants || form.max_participants < 1) errors.max_participants = 'Количество должно быть не меньше 1';
+    if (Object.keys(errors).length) {
+      setFormErrors(errors);
+      return;
+    }
     try {
       setLoading(true);
       const payload = { ...form };
@@ -106,9 +117,11 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({ open, onClose, e
         onSave();
         onClose();
       } else {
+        setFormErrors({ form: 'Не удалось сохранить событие. Проверьте данные формы.' });
         toast.error("Ошибка сохранения");
       }
     } catch (err) {
+      setFormErrors({ form: 'Не удалось сохранить событие. Проверьте данные формы.' });
       toast.error("Ошибка сохранения");
       console.error(err);
     } finally {
@@ -137,6 +150,7 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({ open, onClose, e
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" sx={{ '& .MuiDialog-paper': { borderRadius: '24px' } }}>
       <DialogTitle sx={{ fontWeight: 900 }}>{eventId ? 'Редактирование задачи' : 'Новая задача'}</DialogTitle>
       <DialogContent dividers>
+        {formErrors.form && <Alert severity="error" sx={{ mb: 1 }}>{formErrors.form}</Alert>}
         
         {!eventId && templates.length > 0 && (
           <FormControl fullWidth margin="dense" size="small" sx={{ mb: 2 }}>
@@ -154,11 +168,11 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({ open, onClose, e
           </FormControl>
         )}
 
-        <TextField fullWidth label="Название" margin="dense" value={form.title} onChange={e => setForm({...form, title: e.target.value})} />
-        <Stack direction="row" spacing={2} sx={{ mt: 1 }}>
-          <TextField fullWidth type="date" label="Дата" slotProps={{ inputLabel: { shrink: true } }} value={form.date} onChange={e => setForm({...form, date: e.target.value})} />
-          <TextField fullWidth type="time" label="Время начала" slotProps={{ inputLabel: { shrink: true } }} value={form.time} onChange={e => setForm({...form, time: e.target.value})} />
-          <TextField fullWidth type="time" label="Время окончания" slotProps={{ inputLabel: { shrink: true } }} value={form.end_time || ''} onChange={e => setForm({...form, end_time: e.target.value})} />
+        <TextField fullWidth label="Название" margin="dense" value={form.title} onChange={e => setForm({...form, title: e.target.value})} error={Boolean(formErrors.title)} helperText={formErrors.title} />
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mt: 1 }}>
+          <TextField fullWidth type="date" label="Дата" slotProps={{ inputLabel: { shrink: true } }} value={form.date} onChange={e => setForm({...form, date: e.target.value})} error={Boolean(formErrors.date)} helperText={formErrors.date} />
+          <TextField fullWidth type="time" label="Время начала" slotProps={{ inputLabel: { shrink: true } }} value={form.time} onChange={e => setForm({...form, time: e.target.value})} error={Boolean(formErrors.time)} helperText={formErrors.time} />
+          <TextField fullWidth type="time" label="Время окончания" slotProps={{ inputLabel: { shrink: true } }} value={form.end_time || ''} onChange={e => setForm({...form, end_time: e.target.value})} error={Boolean(formErrors.end_time)} helperText={formErrors.end_time} />
         </Stack>
         
         
@@ -216,7 +230,7 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({ open, onClose, e
         <Collapse in={showAdvanced}>
           <Box sx={{ pt: 1 }}>
             <Stack direction="row" spacing={2} sx={{ mt: 1 }}>
-              <TextField fullWidth type="number" label="Макс. участников" value={form.max_participants} onChange={e => setForm({...form, max_participants: parseInt(e.target.value)})} />
+              <TextField fullWidth type="number" label="Макс. участников" value={form.max_participants} onChange={e => setForm({...form, max_participants: parseInt(e.target.value)})} error={Boolean(formErrors.max_participants)} helperText={formErrors.max_participants} />
               <TextField fullWidth type="datetime-local" label="Дедлайн сдачи" slotProps={{ inputLabel: { shrink: true } }} value={form.deadline} onChange={e => setForm({...form, deadline: e.target.value})} />
             </Stack>
 

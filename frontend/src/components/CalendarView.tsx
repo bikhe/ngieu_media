@@ -122,10 +122,10 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           {MONTH_NAMES[month]} {year}
         </Typography>
         <Box sx={{ display: 'flex', gap: 1 }}>
-          <IconButton onClick={handlePrevMonth} size="small" className="soft-card" sx={{ mr: 1 }}>
+          <IconButton aria-label="Предыдущий месяц" onClick={handlePrevMonth} size="small" className="soft-card" sx={{ mr: 1 }}>
             <ChevronLeft size={20} />
           </IconButton>
-          <IconButton onClick={handleNextMonth} size="small" className="soft-card">
+          <IconButton aria-label="Следующий месяц" onClick={handleNextMonth} size="small" className="soft-card">
             <ChevronRight size={20} />
           </IconButton>
         </Box>
@@ -158,6 +158,9 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
           return (
             <Box
+              component="button"
+              type="button"
+              aria-label={`${cell.date.getDate()} ${MONTH_NAMES[cell.date.getMonth()]} ${cell.date.getFullYear()}`}
               key={idx}
               onClick={() => {
                 onSelectDate(cell.date);
@@ -190,7 +193,9 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                     : 'text.secondary'),
                 opacity: cell.isCurrentMonth ? 1 : 0.4,
                 border: currentIsToday && !isSelected ? `1px solid ${theme.palette.primary.main}` : 'none',
-                transition: 'all 0.2s',
+                transition: 'transform 0.2s, background-color 0.2s',
+                p: 0,
+                font: 'inherit',
                 '&:active': {
                   transform: 'scale(0.9)',
                   bgcolor: isSelected ? 'primary.main' : 'action.selected'

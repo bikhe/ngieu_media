@@ -115,7 +115,7 @@ const InviteModal: React.FC<InviteModalProps> = ({ open, onClose }) => {
                   key={invite.id}
                   secondaryAction={
                     <Tooltip title="Скопировать">
-                      <IconButton edge="end" onClick={() => copyCode(invite.code)}>
+                      <IconButton aria-label={`Скопировать инвайт-код ${invite.code}`} edge="end" onClick={() => copyCode(invite.code)}>
                         <ContentCopyIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>

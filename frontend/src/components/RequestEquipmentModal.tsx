@@ -11,6 +11,7 @@ import {
   MenuItem,
   TextField,
   Stack,
+  Alert,
   } from '@mui/material';
 
 interface EquipmentItem {
@@ -54,6 +55,7 @@ export const RequestEquipmentModal: React.FC<RequestEquipmentModalProps> = ({
   const [selectedEventId, setSelectedEventId] = useState<number | 'none'>('none');
   const [comment, setComment] = useState<string>('');
   const [submitting, setSubmitting] = useState<boolean>(false);
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   const formatDefaultDate = (d: Date) => {
     const pad = (n: number) => String(n).padStart(2, '0');
@@ -82,21 +84,23 @@ export const RequestEquipmentModal: React.FC<RequestEquipmentModalProps> = ({
   const maxQty = selectedEq?.available_quantity ?? 1;
 
   const handleSubmit = async () => {
-    if (selectedEqId === '') return;
-    if (!loanStart || !loanEnd) {
-      alert("Укажите время начала и окончания бронирования");
+    const errors: Record<string, string> = {};
+    if (selectedEqId === '') errors.equipment = 'Выберите оборудование';
+    if (!loanStart || !loanEnd) errors.dates = 'Укажите время начала и окончания бронирования';
+    else if (new Date(loanStart) >= new Date(loanEnd)) errors.loanEnd = 'Время окончания должно быть позже начала';
+    if (selectedEqId !== '' && (quantity < 1 || quantity > maxQty)) errors.quantity = `Количество должно быть от 1 до ${maxQty}`;
+    if (Object.keys(errors).length) {
+      setFormErrors(errors);
       return;
     }
-    if (new Date(loanStart) >= new Date(loanEnd)) {
-      alert("Время начала должно быть раньше времени окончания");
-      return;
-    }
+    if (typeof selectedEqId !== 'number') return;
     setSubmitting(true);
     try {
       const eventId = selectedEventId === 'none' ? null : selectedEventId;
       await onConfirm(selectedEqId, quantity, eventId, comment, loanStart, loanEnd);
       onClose();
     } catch (err) {
+      setFormErrors({ form: 'Не удалось отправить запрос. Попробуйте ещё раз.' });
       console.error(err);
     } finally {
       setSubmitting(false);
@@ -108,8 +112,9 @@ export const RequestEquipmentModal: React.FC<RequestEquipmentModalProps> = ({
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
       <DialogTitle sx={{ fontWeight: 'bold' }}>Запрос оборудования</DialogTitle>
       <DialogContent>
+        {formErrors.form && <Alert severity="error" sx={{ mb: 2 }}>{formErrors.form}</Alert>}
         <Stack spacing={2.5} sx={{ mt: 1 }}>
-          <FormControl fullWidth>
+          <FormControl fullWidth error={Boolean(formErrors.equipment)}>
             <InputLabel id="eq-select-label">Выберите оборудование</InputLabel>
             <Select
               labelId="eq-select-label"
@@ -131,6 +136,7 @@ export const RequestEquipmentModal: React.FC<RequestEquipmentModalProps> = ({
                 <MenuItem disabled>Нет доступного оборудования</MenuItem>
               )}
             </Select>
+            {formErrors.equipment && <Alert severity="error" sx={{ mt: 1 }}>{formErrors.equipment}</Alert>}
           </FormControl>
 
           {selectedEq && (
@@ -143,7 +149,8 @@ export const RequestEquipmentModal: React.FC<RequestEquipmentModalProps> = ({
                 setQuantity(val);
               }}
               slotProps={{ htmlInput: { min: 1, max: maxQty } }}
-              helperText={`Максимум: ${maxQty} шт.`}
+              helperText={formErrors.quantity || `Максимум: ${maxQty} шт.`}
+              error={Boolean(formErrors.quantity)}
               fullWidth
             />
           )}
@@ -173,6 +180,8 @@ export const RequestEquipmentModal: React.FC<RequestEquipmentModalProps> = ({
             slotProps={{ inputLabel: { shrink: true } }}
             fullWidth
             required
+            error={Boolean(formErrors.dates)}
+            helperText={formErrors.dates}
           />
 
           <TextField
@@ -183,6 +192,8 @@ export const RequestEquipmentModal: React.FC<RequestEquipmentModalProps> = ({
             slotProps={{ inputLabel: { shrink: true } }}
             fullWidth
             required
+            error={Boolean(formErrors.loanEnd)}
+            helperText={formErrors.loanEnd}
           />
 
           <TextField

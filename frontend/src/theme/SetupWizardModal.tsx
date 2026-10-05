@@ -90,6 +90,7 @@ export const SetupWizardModal = () => {
                 >
                   {preset.id === 'custom' ? (
                     <input 
+                      aria-label="Выбрать пользовательский цвет"
                       type="color" 
                       value={customColor} 
                       onChange={(e) => {

@@ -130,6 +130,21 @@ body {
   color: var(--soft-text) !important;
 }
 
+.event-card {
+  border-radius: 16px !important;
+}
+
+.admin-data-card {
+  padding: 16px;
+  border-radius: 16px !important;
+}
+
+@media (min-width: 600px) {
+  .admin-data-card {
+    padding: 24px;
+  }
+}
+
 .soft-input {
   background: var(--soft-bg) !important;
   box-shadow: inset 4px 4px 8px var(--soft-inset-dark), inset -4px -4px 8px var(--soft-inset-light) !important;
@@ -142,10 +157,21 @@ body {
   box-shadow: 6px 6px 12px var(--soft-shadow-dark), -6px -6px 12px var(--soft-shadow-light) !important;
   border: 1px solid var(--soft-border) !important;
   color: var(--soft-text) !important;
-  transition: all 0.2s ease !important;
+  transition: box-shadow 0.2s ease, transform 0.2s ease !important;
 }
 
 .soft-button:active, .soft-button.active {
   box-shadow: inset 4px 4px 8px var(--soft-inset-dark), inset -4px -4px 8px var(--soft-inset-light) !important;
   transform: scale(0.98);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }

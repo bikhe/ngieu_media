@@ -102,8 +102,8 @@ export const EventCard: React.FC<EventCardProps> = ({
   const statusInfo = getStatusDetails(event.status);
 
   return (
-    <Card sx={{ mb: 2, mx: { xs: 2, sm: 3 }, borderRadius: 8, border: isMyTask ? '1px solid rgba(25, 118, 210, 0.4)' : 'none', position: 'relative' }}>
-      <CardContent sx={{ py: { xs: 3.5, sm: 4 }, px: { xs: 4.5, sm: 6 }, '&:last-child': { pb: { xs: 3.5, sm: 4 } } }}>
+    <Card className="event-card" sx={{ mb: 2, mx: { xs: 0, sm: 0 }, border: isMyTask ? '1px solid rgba(25, 118, 210, 0.4)' : 'none', position: 'relative' }}>
+      <CardContent sx={{ py: { xs: 2.5, sm: 3 }, px: { xs: 2, sm: 3 }, '&:last-child': { pb: { xs: 2.5, sm: 3 } } }}>
         {/* Status and limits */}
         <Box sx={{ display: 'flex', gap: 1, mb: 1.5, flexWrap: 'wrap', pr: canEdit ? { xs: 4, sm: 5 } : 0 }}>
           <Chip label={statusInfo.label} color={statusInfo.color} size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
@@ -120,14 +120,14 @@ export const EventCard: React.FC<EventCardProps> = ({
 
         {canEdit && (
           <Box sx={{ position: 'absolute', top: { xs: 12, sm: 16 }, right: { xs: 8, sm: 12 }, display: 'flex', gap: 0.5 }}>
-            <IconButton size="small" onClick={() => onDuplicateEvent?.(event.id)} sx={{ p: 0.5 }} title="Дублировать">
+            <IconButton aria-label="Дублировать мероприятие" size="small" onClick={() => onDuplicateEvent?.(event.id)} sx={{ p: 0.5 }} title="Дублировать">
               <Copy size={14} />
             </IconButton>
-            <IconButton size="small" onClick={() => onEditEvent?.(event.id)} sx={{ p: 0.5 }} title="Редактировать">
+            <IconButton aria-label="Редактировать мероприятие" size="small" onClick={() => onEditEvent?.(event.id)} sx={{ p: 0.5 }} title="Редактировать">
               <Edit2 size={14} />
             </IconButton>
             {canDelete && (
-              <IconButton size="small" color="error" onClick={() => onDeleteEvent?.(event.id)} sx={{ p: 0.5 }} title="Удалить">
+              <IconButton aria-label="Удалить мероприятие" size="small" color="error" onClick={() => onDeleteEvent?.(event.id)} sx={{ p: 0.5 }} title="Удалить">
                 <Trash2 size={14} />
               </IconButton>
             )}
@@ -197,6 +197,7 @@ export const EventCard: React.FC<EventCardProps> = ({
             {/* Document Link */}
             {event.document_link && (
               <IconButton
+                aria-label="Открыть техническое задание"
                 size="small"
                 color="primary"
                 onClick={(e) => {
@@ -220,6 +221,7 @@ export const EventCard: React.FC<EventCardProps> = ({
             {/* Chat Link */}
             {currentUser.features?.event_chat === true && canChat && (
               <IconButton
+                aria-label="Открыть чат мероприятия"
                 size="small"
                 onClick={(e) => { e.stopPropagation(); onOpenChat(event.id); }}
                 title="Чат"
@@ -234,10 +236,10 @@ export const EventCard: React.FC<EventCardProps> = ({
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', ml: 'auto' }}>
             {canApproveReject && (
               <>
-                <IconButton size="small" onClick={() => onApproveEvent?.(event.id)} sx={{ bgcolor: 'success.main', color: 'white', '&:hover': { bgcolor: 'success.dark' }, width: 28, height: 28 }}>
+                <IconButton aria-label="Одобрить мероприятие" size="small" onClick={() => onApproveEvent?.(event.id)} sx={{ bgcolor: 'success.main', color: 'white', '&:hover': { bgcolor: 'success.dark' }, width: 40, height: 40 }}>
                   <Check size={16} />
                 </IconButton>
-                <IconButton size="small" onClick={() => onRejectEvent?.(event.id)} sx={{ bgcolor: 'error.main', color: 'white', '&:hover': { bgcolor: 'error.dark' }, width: 28, height: 28 }}>
+                <IconButton aria-label="Отклонить мероприятие" size="small" onClick={() => onRejectEvent?.(event.id)} sx={{ bgcolor: 'error.main', color: 'white', '&:hover': { bgcolor: 'error.dark' }, width: 40, height: 40 }}>
                   <X size={16} />
                 </IconButton>
               </>

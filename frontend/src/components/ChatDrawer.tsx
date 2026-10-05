@@ -98,6 +98,7 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
             display: 'flex',
             flexDirection: 'column',
             bgcolor: 'background.default',
+            overscrollBehavior: 'contain',
           },
         },
       }}
@@ -120,7 +121,7 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
         <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
           Чат мероприятия
         </Typography>
-        <IconButton onClick={onClose} edge="end">
+        <IconButton aria-label="Закрыть чат" onClick={onClose} edge="end">
           <X size={20} />
         </IconButton>
       </Box>
@@ -217,6 +218,7 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
         onSubmit={handleSend}
         sx={{
           p: 2,
+          pb: 'calc(16px + env(safe-area-inset-bottom))',
           borderTop: 1,
           borderColor: 'divider',
           display: 'flex',
@@ -226,6 +228,7 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
         }}
       >
         <TextField
+          aria-label="Сообщение"
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="Сообщение..."
@@ -240,6 +243,7 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
           }}
         />
         <IconButton
+          aria-label="Отправить сообщение"
           type="submit"
           color="primary"
           disabled={!text.trim() || sending}
