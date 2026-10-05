@@ -352,7 +352,7 @@ const Analytics = () => {
             <Typography variant="subtitle2" color="text.secondary">Подробная аналитика эффективности отдела и сотрудников</Typography>
           </Box>
 
-          <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: { xs: 'stretch', sm: 'center' }, width: { xs: '100%', sm: 'auto' } }}>
             <Button
               variant="contained"
               color="secondary"
@@ -361,7 +361,7 @@ const Analytics = () => {
             >
               Экспорт отчетов
             </Button>
-            <FormControl sx={{ minWidth: 200 }} size="small">
+            <FormControl sx={{ minWidth: { xs: 0, sm: 200 }, width: { xs: '100%', sm: 'auto' } }} size="small">
               <InputLabel id="days-filter-label">Временной диапазон</InputLabel>
               <Select
                 labelId="days-filter-label"
@@ -707,7 +707,7 @@ const Analytics = () => {
             <Stack spacing={3}>
               <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>2. Настройка фильтров таблицы</Typography>
 
-              <Stack direction="row" spacing={2}>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                 <TextField
                   fullWidth
                   type="date"

@@ -8,7 +8,7 @@ export default defineConfig({
     // Split the large UI library chunks so the entry bundle stays small.
     rolldownOptions: {
       output: {
-        advancedChunks: {
+        codeSplitting: {
           groups: [
             { name: 'mui', test: /node_modules\/@mui|node_modules\/@emotion/ },
             { name: 'vendor', test: /node_modules/ },
@@ -31,4 +31,3 @@ export default defineConfig({
     },
   },
 })
-

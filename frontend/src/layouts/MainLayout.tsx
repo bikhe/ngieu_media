@@ -191,11 +191,11 @@ export const MainLayout = () => {
             color: 'text.primary',
           }}
         >
-          <Toolbar sx={{ justifyContent: isAdmin && isDesktop ? 'flex-end' : 'space-between' }}>
+          <Toolbar sx={{ justifyContent: isAdmin && isDesktop ? 'flex-end' : 'space-between', pt: { xs: 'env(safe-area-inset-top)', sm: 0 } }}>
             {(!isDesktop || !isAdmin) && (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 {isAdmin && (
-                  <IconButton onClick={handleDrawerToggle} edge="start" sx={{ mr: 1 }}>
+                  <IconButton aria-label="Открыть меню" onClick={handleDrawerToggle} edge="start" sx={{ mr: 1 }}>
                     <Menu size={24} />
                   </IconButton>
                 )}
@@ -204,11 +204,11 @@ export const MainLayout = () => {
             )}
             
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <IconButton onClick={openSetup} color="primary" className="soft-card">
+              <IconButton aria-label="Настроить тему и шрифт" onClick={openSetup} color="primary" className="soft-card">
                 <Palette size={20} />
               </IconButton>
               {!isAdmin && (
-                <IconButton onClick={() => setProfileOpen(true)} color="primary" className="soft-card">
+                <IconButton aria-label="Открыть профиль" onClick={() => setProfileOpen(true)} color="primary" className="soft-card">
                   <UserIcon size={20} />
                 </IconButton>
               )}

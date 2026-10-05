@@ -1,6 +1,6 @@
 import { useEffect, useState, useContext, useCallback, useRef } from 'react';
 import {
-  Box, Container, Typography, Card, Button, Avatar, IconButton, Chip, Paper, Stack,
+  Box, Container, Typography, Card, Button, Avatar, IconButton, Chip, Paper, Stack, Alert,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, MenuItem, Select,
   FormControl, InputLabel, CircularProgress, Tabs, Tab, Dialog, DialogTitle, DialogContent, DialogActions,
   Tooltip, TablePagination
@@ -70,6 +70,7 @@ const Warehouse = () => {
     status: 'AVAILABLE',
     category: 'OTHER'
   });
+  const [eqFormErrors, setEqFormErrors] = useState<Record<string, string>>({});
 
   const [eqPage, setEqPage] = useState(0);
   const [eqRowsPerPage, setEqRowsPerPage] = useState(10);
@@ -153,6 +154,7 @@ const Warehouse = () => {
   });
 
   const handleOpenEqModal = (item?: Equipment) => {
+    setEqFormErrors({});
     if (item) {
       setEqForm({
         name: item.name,
@@ -178,7 +180,7 @@ const Warehouse = () => {
 
   const handleSaveEquipment = async () => {
     if (!eqForm.name.trim()) {
-      toast.error("Название не может быть пустым");
+      setEqFormErrors({ name: "Введите название оборудования" });
       return;
     }
 
@@ -192,7 +194,12 @@ const Warehouse = () => {
       }
       setEqModal({ open: false, id: null });
       loadData();
-    } catch {
+    } catch (err) {
+      const data = isAxiosError(err) ? err.response?.data as { name?: string[]; error?: string; detail?: string } : undefined;
+      setEqFormErrors({
+        ...(data?.name?.[0] ? { name: data.name[0] } : {}),
+        form: data?.error || data?.detail || "Не удалось сохранить оборудование"
+      });
       toast.error("Ошибка при сохранении");
     }
   };
@@ -248,7 +255,7 @@ const Warehouse = () => {
 
       <Container maxWidth="lg" sx={{ mt: 4 }}>
         {/* Header section */}
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
+        <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, justifyContent: 'space-between', alignItems: { xs: 'stretch', sm: 'center' }, gap: 2, mb: 4 }}>
           <Box>
             <Typography variant="h4" sx={{ fontWeight: 900 }}>Управление складом</Typography>
             <Typography variant="subtitle2" color="text.secondary">
@@ -256,7 +263,7 @@ const Warehouse = () => {
             </Typography>
           </Box>
           {activeTab === 0 && (
-            <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpenEqModal()}>
+            <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpenEqModal()} sx={{ alignSelf: { xs: 'flex-start', sm: 'auto' } }}>
               Добавить технику
             </Button>
           )}
@@ -270,8 +277,8 @@ const Warehouse = () => {
 
         {/* Catalog Tab */}
         {activeTab === 0 && (
-          <Card sx={{ p: 3, boxShadow: '0 4px 20px 0 rgba(0,0,0,0.05)' }}>
-            <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
+          <Card className="admin-data-card" sx={{ boxShadow: '0 4px 20px 0 rgba(0,0,0,0.05)' }}>
+            <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, display: { xs: 'none', sm: 'block' } }}>
               <Table>
                 <TableHead sx={{ bgcolor: mode === 'dark' ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)' }}>
                   <TableRow>
@@ -342,6 +349,28 @@ const Warehouse = () => {
                 </TableBody>
               </Table>
             </TableContainer>
+            <Stack spacing={1.5} sx={{ display: { xs: 'flex', sm: 'none' } }}>
+              {equipment.length > 0 ? equipment.map((item) => (
+                <Card key={item.id} variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                  <Stack direction="row" spacing={1.5} sx={{ alignItems: 'flex-start' }}>
+                    <Avatar sx={{ bgcolor: 'action.selected', color: 'primary.main', width: 36, height: 36 }}><InventoryIcon fontSize="small" /></Avatar>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography sx={{ fontWeight: 700 }}>{item.name}</Typography>
+                      <Typography variant="caption" color="text.secondary">{CATEGORIES[item.category] || item.category} · S/N: {item.serial_number || '—'}</Typography>
+                      <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap', gap: 0.75 }}>
+                        <Chip label={`${item.available_quantity ?? 0}/${item.total_quantity} шт.`} color={(item.available_quantity ?? 0) > 0 ? 'success' : 'error'} size="small" />
+                        <Chip label={STATUSES[item.status]?.label || item.status} color={STATUSES[item.status]?.color || 'default'} size="small" />
+                      </Stack>
+                      {item.description && <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>{item.description}</Typography>}
+                    </Box>
+                    <Stack direction="row">
+                      <Button size="small" onClick={() => handleOpenEqModal(item)}>Изм.</Button>
+                      <Button size="small" color="error" onClick={() => handleDeleteEquipment(item.id)}>Удал.</Button>
+                    </Stack>
+                  </Stack>
+                </Card>
+              )) : <Typography align="center" color="text.secondary" sx={{ py: 3 }}>На складе нет зарегистрированного оборудования</Typography>}
+            </Stack>
             <TablePagination
               rowsPerPageOptions={[5, 10, 25]}
               component="div"
@@ -368,8 +397,8 @@ const Warehouse = () => {
 
         {/* Requests & Loans Tab */}
         {activeTab === 1 && (
-          <Card sx={{ p: 3, boxShadow: '0 4px 20px 0 rgba(0,0,0,0.05)' }}>
-            <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
+          <Card className="admin-data-card" sx={{ boxShadow: '0 4px 20px 0 rgba(0,0,0,0.05)' }}>
+            <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, display: { xs: 'none', sm: 'block' } }}>
               <Table>
                 <TableHead sx={{ bgcolor: mode === 'dark' ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)' }}>
                   <TableRow>
@@ -446,6 +475,7 @@ const Warehouse = () => {
                               <>
                                 <Tooltip title="Выдать технику">
                                   <IconButton
+                                    aria-label="Выдать технику"
                                     size="small"
                                     color="success"
                                     onClick={() => handleLoanAction(loan.id, 'approve_issue')}
@@ -455,6 +485,7 @@ const Warehouse = () => {
                                 </Tooltip>
                                 <Tooltip title="Отклонить запрос">
                                   <IconButton
+                                    aria-label="Отклонить запрос на технику"
                                     size="small"
                                     color="error"
                                     onClick={() => handleLoanAction(loan.id, 'reject_request')}
@@ -467,6 +498,7 @@ const Warehouse = () => {
                             {loan.status === 'RETURN_REQUESTED' && (
                               <Tooltip title="Подтвердить возврат">
                                 <IconButton
+                                  aria-label="Подтвердить возврат техники"
                                   size="small"
                                   color="info"
                                   onClick={() => handleLoanAction(loan.id, 'approve_return')}
@@ -478,6 +510,7 @@ const Warehouse = () => {
                             {loan.status === 'ISSUED' && (
                               <Tooltip title="Принудительно вернуть">
                                 <IconButton
+                                  aria-label="Принудительно вернуть технику"
                                   size="small"
                                   color="secondary"
                                   onClick={() => handleLoanAction(loan.id, 'approve_return')}
@@ -502,6 +535,42 @@ const Warehouse = () => {
                 </TableBody>
               </Table>
             </TableContainer>
+            <Stack spacing={1.5} sx={{ display: { xs: 'flex', sm: 'none' } }}>
+              {loans.length > 0 ? loans.map((loan) => (
+                <Card key={loan.id} variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                  <Stack spacing={1}>
+                    <Stack direction="row" sx={{ justifyContent: 'space-between', gap: 1 }}>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography sx={{ fontWeight: 700 }}>{loan.equipment?.name}</Typography>
+                        <Typography variant="body2" color="text.secondary">{loan.user?.username || 'Пользователь не указан'}</Typography>
+                      </Box>
+                      <Chip label={LOAN_STATUSES[loan.status]?.label || loan.status} color={LOAN_STATUSES[loan.status]?.color || 'default'} size="small" />
+                    </Stack>
+                    <Typography variant="body2">Количество: <strong>{loan.quantity}</strong></Typography>
+                    <Typography variant="body2" color="text.secondary">{loan.event_title || 'Личный запрос'}</Typography>
+                    <Typography variant="caption" color="text.secondary">Запрос: {formatDateString(loan.requested_at)}</Typography>
+                    {loan.loan_start && loan.loan_end && <Typography variant="caption" color="primary.main">Период: {formatDateString(loan.loan_start)} - {formatDateString(loan.loan_end)}</Typography>}
+                    {loan.issued_at && (
+                      <Typography variant="caption" color="success.main">
+                        Выдано: {formatDateString(loan.issued_at)}
+                      </Typography>
+                    )}
+                    {loan.returned_at && (
+                      <Typography variant="caption" color="text.disabled">
+                        Возврат: {formatDateString(loan.returned_at)}
+                      </Typography>
+                    )}
+                    <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
+                      {loan.status === 'REQUESTED' && <>
+                        <Button size="small" color="success" startIcon={<CheckCircleIcon />} onClick={() => handleLoanAction(loan.id, 'approve_issue')}>Выдать</Button>
+                        <Button size="small" color="error" startIcon={<CancelIcon />} onClick={() => handleLoanAction(loan.id, 'reject_request')}>Отклонить</Button>
+                      </>}
+                      {(loan.status === 'RETURN_REQUESTED' || loan.status === 'ISSUED') && <Button size="small" color="info" startIcon={<AssignmentReturnedIcon />} onClick={() => handleLoanAction(loan.id, 'approve_return')}>Вернуть</Button>}
+                    </Stack>
+                  </Stack>
+                </Card>
+              )) : <Typography align="center" color="text.secondary" sx={{ py: 3 }}>История запросов пуста</Typography>}
+            </Stack>
             <TablePagination
               rowsPerPageOptions={[5, 10, 25]}
               component="div"
@@ -533,16 +602,19 @@ const Warehouse = () => {
           {eqModal.id ? 'Редактировать оборудование' : 'Добавить оборудование'}
         </DialogTitle>
         <DialogContent dividers>
+          {eqFormErrors.form && <Alert severity="error" sx={{ mb: 2 }}>{eqFormErrors.form}</Alert>}
           <TextField
             fullWidth
             label="Название"
             margin="dense"
             value={eqForm.name}
             onChange={(e) => setEqForm({ ...eqForm, name: e.target.value })}
+            error={Boolean(eqFormErrors.name)}
+            helperText={eqFormErrors.name}
             sx={{ mb: 2 }}
           />
 
-          <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2 }}>
             <FormControl fullWidth>
               <InputLabel>Категория</InputLabel>
               <Select

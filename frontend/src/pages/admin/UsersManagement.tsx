@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useContext, useCallback, useRef } from 'react';
 import {
-  Box, Container, Typography, Card, Button, Avatar, IconButton, Chip, Paper, Stack,
+  Box, Container, Typography, Card, Button, Avatar, IconButton, Chip, Paper, Stack, Alert,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, MenuItem, Select,
   FormControl, InputLabel, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions,
   TablePagination, Checkbox, FormControlLabel
@@ -65,6 +65,7 @@ const UsersManagement = () => {
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [totalUsers, setTotalUsers] = useState(0);
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   const fetchUsers = useCallback(async (p: number, rpp: number, search: string = '') => {
     try {
@@ -140,6 +141,7 @@ const UsersManagement = () => {
   });
 
   const handleOpenModal = (item?: AdminUser) => {
+    setFormErrors({});
     if (item) {
       setForm({
         username: item.username,
@@ -172,12 +174,15 @@ const UsersManagement = () => {
   };
 
   const handleSaveUser = async () => {
+    const errors: Record<string, string> = {};
     if (!form.username.trim()) {
-      toast.error("Логин не может быть пустым");
-      return;
+      errors.username = "Введите логин";
     }
     if (!modal.id && !form.password.trim()) {
-      toast.error("Пароль обязателен для нового пользователя");
+      errors.password = "Введите пароль";
+    }
+    if (Object.keys(errors).length) {
+      setFormErrors(errors);
       return;
     }
 
@@ -198,8 +203,11 @@ const UsersManagement = () => {
     } catch (err) {
       let errMsg = "Ошибка сохранения";
       if (isAxiosError(err)) {
-        const data = err.response?.data as { error?: string; detail?: string; username?: string[] } | undefined;
-        errMsg = data?.error || data?.detail || data?.username?.[0] || "Ошибка сохранения";
+        const data = err.response?.data as { error?: string; detail?: string; username?: string[]; password?: string[] } | undefined;
+        if (data?.username?.[0]) setFormErrors({ username: data.username[0] });
+        else if (data?.password?.[0]) setFormErrors({ password: data.password[0] });
+        else setFormErrors({ form: data?.error || data?.detail || "Ошибка сохранения" });
+        errMsg = data?.error || data?.detail || data?.username?.[0] || data?.password?.[0] || "Ошибка сохранения";
       }
       toast.error(errMsg);
     }
@@ -261,8 +269,8 @@ const UsersManagement = () => {
         </Paper>
 
         {/* Users Table */}
-        <Card sx={{ p: 3, boxShadow: '0 4px 20px 0 rgba(0,0,0,0.05)' }}>
-          <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
+        <Card className="admin-data-card" sx={{ boxShadow: '0 4px 20px 0 rgba(0,0,0,0.05)' }}>
+          <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, display: { xs: 'none', sm: 'block' } }}>
             <Table>
               <TableHead sx={{ bgcolor: mode === 'dark' ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)' }}>
                 <TableRow>
@@ -302,10 +310,11 @@ const UsersManagement = () => {
                       <TableCell>{item.telegram_id || '—'}</TableCell>
                       <TableCell align="right">
                         <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
-                          <IconButton size="small" color="primary" onClick={() => handleOpenModal(item)}>
+                          <IconButton aria-label={`Редактировать пользователя ${item.username}`} size="small" color="primary" onClick={() => handleOpenModal(item)}>
                             <EditIcon fontSize="small" />
                           </IconButton>
                           <IconButton
+                            aria-label={`Удалить пользователя ${item.username}`}
                             size="small"
                             color="error"
                             disabled={item.id === user?.id}
@@ -329,6 +338,28 @@ const UsersManagement = () => {
               </TableBody>
             </Table>
           </TableContainer>
+          <Stack spacing={1.5} sx={{ display: { xs: 'flex', sm: 'none' } }}>
+            {users.length > 0 ? users.map((item) => (
+              <Card key={item.id} variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                <Stack direction="row" spacing={1.5} sx={{ alignItems: 'flex-start' }}>
+                  <Avatar sx={{ bgcolor: 'action.selected', color: 'primary.main', width: 36, height: 36 }}><PersonIcon fontSize="small" /></Avatar>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography sx={{ fontWeight: 700 }}>{`${item.first_name || ''} ${item.last_name || ''}`.trim() || 'Имя не указано'}</Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ fontFamily: 'monospace' }}>@{item.username}</Typography>
+                    <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap', gap: 0.75 }}>
+                      <Chip label={item.role ? (ROLES[item.role] || item.role) : '—'} color={item.role ? (ROLE_COLORS[item.role] || 'default') : 'default'} size="small" />
+                      <Typography variant="body2" color="text.secondary">{item.phone_number || 'Телефон не указан'}</Typography>
+                    </Stack>
+                    <Typography variant="caption" color="text.secondary">Telegram ID: {item.telegram_id || '—'}</Typography>
+                  </Box>
+                  <Stack direction="row">
+                    <IconButton aria-label={`Редактировать пользователя ${item.username}`} color="primary" onClick={() => handleOpenModal(item)}><EditIcon fontSize="small" /></IconButton>
+                    <IconButton aria-label={`Удалить пользователя ${item.username}`} color="error" disabled={item.id === user?.id} onClick={() => handleDeleteUser(item.id, item.username)}><DeleteIcon fontSize="small" /></IconButton>
+                  </Stack>
+                </Stack>
+              </Card>
+            )) : <Typography align="center" color="text.secondary" sx={{ py: 3 }}>Пользователи не найдены</Typography>}
+          </Stack>
           <TablePagination
             rowsPerPageOptions={[5, 10, 25]}
             component="div"
@@ -353,12 +384,15 @@ const UsersManagement = () => {
           {modal.id ? 'Редактировать пользователя' : 'Создать пользователя'}
         </DialogTitle>
         <DialogContent dividers>
+          {formErrors.form && <Alert severity="error" sx={{ mb: 2 }}>{formErrors.form}</Alert>}
           <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField
               fullWidth
               label="Логин (имя пользователя)"
               value={form.username}
               onChange={(e) => setForm({ ...form, username: e.target.value })}
+              error={Boolean(formErrors.username)}
+              helperText={formErrors.username}
             />
 
             <TextField
@@ -367,6 +401,8 @@ const UsersManagement = () => {
               label={modal.id ? "Новый пароль (оставьте пустым для сохранения старого)" : "Пароль"}
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
+              error={Boolean(formErrors.password)}
+              helperText={formErrors.password}
             />
 
             <Stack direction="row" spacing={2}>

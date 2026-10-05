@@ -355,7 +355,7 @@ const Dashboard = () => {
 
                   return (
                   <Box key={event.id}>
-                    <Card className="spring-card" sx={{ height: '100%', p: 2.5, display: 'flex', flexDirection: 'column', borderTop: 4, borderColor: event.status === 'COMPLETED' ? 'success.main' : (event.status === 'OVERDUE' ? 'error.main' : (event.status === 'PENDING' ? 'warning.main' : 'primary.main')), borderRadius: 3 }}>
+                    <Card className="event-card spring-card" sx={{ height: '100%', p: { xs: 2, sm: 2.5 }, display: 'flex', flexDirection: 'column', borderTop: 4, borderColor: event.status === 'COMPLETED' ? 'success.main' : (event.status === 'OVERDUE' ? 'error.main' : (event.status === 'PENDING' ? 'warning.main' : 'primary.main')) }}>
                       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                         <Chip label={statusInfo.label} size="small" color={statusInfo.color} sx={{ borderRadius: 2, fontWeight: 600, fontSize: '0.7rem', height: 24 }} />
                         {(isAdmin || (user?.role === 'ORGANIZER' && event.responsible_person?.id === user?.id)) && (
@@ -545,7 +545,7 @@ const Dashboard = () => {
 
                 return (
                 <Box key={event.id}>
-                  <Card className="spring-card" sx={{ height: '100%', p: 2.5, display: 'flex', flexDirection: 'column', borderTop: 4, borderColor: event.status === 'COMPLETED' ? 'success.main' : (event.status === 'OVERDUE' ? 'error.main' : (event.status === 'PENDING' ? 'warning.main' : 'primary.main')), borderRadius: 3 }}>
+                  <Card className="event-card spring-card" sx={{ height: '100%', p: { xs: 2, sm: 2.5 }, display: 'flex', flexDirection: 'column', borderTop: 4, borderColor: event.status === 'COMPLETED' ? 'success.main' : (event.status === 'OVERDUE' ? 'error.main' : (event.status === 'PENDING' ? 'warning.main' : 'primary.main')) }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                       <Chip label={statusInfo.label} size="small" color={statusInfo.color} sx={{ borderRadius: 2, fontWeight: 600, fontSize: '0.7rem', height: 24 }} />
                       {(isAdmin || (user?.role === 'ORGANIZER' && event.responsible_person?.id === user?.id)) && (

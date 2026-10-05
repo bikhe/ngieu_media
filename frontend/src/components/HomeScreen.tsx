@@ -378,16 +378,16 @@ export const HomeScreen: React.FC = () => {
               </Button>
             )}
             {me.role === 'MAIN_ADMIN' && (
-              <IconButton className="soft-card" onClick={() => setAdminPanelOpen(true)} color="primary">
+              <IconButton aria-label="Открыть панель администратора" className="soft-card" onClick={() => setAdminPanelOpen(true)} color="primary">
                 <Settings size={20} />
               </IconButton>
             )}
             {(activeTab === 0 || activeTab === 1) && (
-              <IconButton className="soft-card" onClick={() => setViewMode(viewMode === 'list' ? 'calendar' : 'list')} color="primary">
+              <IconButton aria-label={viewMode === 'list' ? 'Показать календарь' : 'Показать список'} className="soft-card" onClick={() => setViewMode(viewMode === 'list' ? 'calendar' : 'list')} color="primary">
                 {viewMode === 'list' ? <CalendarIcon size={20} /> : <ListIcon size={20} />}
               </IconButton>
             )}
-            <IconButton className="soft-card" onClick={() => loadData(true)} color="primary">
+            <IconButton aria-label="Обновить данные" className="soft-card" onClick={() => loadData(true)} color="primary">
               <RefreshCw size={20} />
             </IconButton>
           </Box>
