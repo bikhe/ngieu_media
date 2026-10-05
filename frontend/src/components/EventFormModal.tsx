@@ -39,6 +39,7 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({ open, onClose, e
     if (open) {
       // Deferred so the state updates never happen synchronously in the effect body.
       void Promise.resolve().then(() => {
+        setFormErrors({});
         void apiService.getTemplates().then(setTemplates);
         void apiService.getLocations().then(setLocations);
       });
@@ -68,6 +69,7 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({ open, onClose, e
     } else if (open && !eventId) {
       // Deferred so the state reset never happens synchronously in the effect body.
       void Promise.resolve().then(() => {
+        setFormErrors({});
         setForm({
           title: '', date: '', time: '12:00', end_time: '14:00', deadline: '', location_ids: [] as number[], short_comment: '',
           content_type: 'PHOTO', document_link: '', result_link: '',

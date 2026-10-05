@@ -550,6 +550,16 @@ const Warehouse = () => {
                     <Typography variant="body2" color="text.secondary">{loan.event_title || 'Личный запрос'}</Typography>
                     <Typography variant="caption" color="text.secondary">Запрос: {formatDateString(loan.requested_at)}</Typography>
                     {loan.loan_start && loan.loan_end && <Typography variant="caption" color="primary.main">Период: {formatDateString(loan.loan_start)} - {formatDateString(loan.loan_end)}</Typography>}
+                    {loan.issued_at && (
+                      <Typography variant="caption" color="success.main">
+                        Выдано: {formatDateString(loan.issued_at)}
+                      </Typography>
+                    )}
+                    {loan.returned_at && (
+                      <Typography variant="caption" color="text.disabled">
+                        Возврат: {formatDateString(loan.returned_at)}
+                      </Typography>
+                    )}
                     <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
                       {loan.status === 'REQUESTED' && <>
                         <Button size="small" color="success" startIcon={<CheckCircleIcon />} onClick={() => handleLoanAction(loan.id, 'approve_issue')}>Выдать</Button>
